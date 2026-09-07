@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+release/
+test-results/
+test-data/
+integration-results/
+.vs/
+.idea/
+*.suo
+.env
+.env.*
+notes.json*
+*.user

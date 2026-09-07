@@ -1,0 +1,114 @@
+[
+  {
+    "seconds": 15.017218399999999,
+    "cpuPercent": 1.1380165950040388,
+    "privateMiB": 146.46484375,
+    "responding": true,
+    "workingSetMiB": 208.3828125
+  },
+  {
+    "seconds": 30.0621081,
+    "cpuPercent": 0.6555901337050014,
+    "privateMiB": 140.80078125,
+    "responding": true,
+    "workingSetMiB": 208.44140625
+  },
+  {
+    "seconds": 45.093492100000006,
+    "cpuPercent": 0.13643329516430422,
+    "privateMiB": 138.04296875,
+    "responding": true,
+    "workingSetMiB": 204.52734375
+  },
+  {
+    "seconds": 60.1248007,
+    "cpuPercent": 0.03248428084298662,
+    "privateMiB": 137.62890625,
+    "responding": true,
+    "workingSetMiB": 204.31640625
+  },
+  {
+    "seconds": 75.14494830000001,
+    "cpuPercent": 0.16904377823823777,
+    "privateMiB": 138.68359375,
+    "responding": true,
+    "workingSetMiB": 205.37109375
+  },
+  {
+    "seconds": 90.1573554,
+    "cpuPercent": 0.13010072182228527,
+    "privateMiB": 139.6171875,
+    "responding": true,
+    "workingSetMiB": 207.51171875
+  },
+  {
+    "seconds": 105.174604,
+    "cpuPercent": 0.0,
+    "privateMiB": 139.5,
+    "responding": true,
+    "workingSetMiB": 207.44140625
+  },
+  {
+    "seconds": 120.1992123,
+    "cpuPercent": 0.0064997534744383354,
+    "privateMiB": 139.5,
+    "responding": true,
+    "workingSetMiB": 207.44140625
+  },
+  {
+    "seconds": 135.2233433,
+    "cpuPercent": 0.0,
+    "privateMiB": 139.37890625,
+    "responding": true,
+    "workingSetMiB": 207.3828125
+  },
+  {
+    "seconds": 150.239332,
+    "cpuPercent": 0.006503484515808146,
+    "privateMiB": 139.37890625,
+    "responding": true,
+    "workingSetMiB": 207.3828125
+  },
+  {
+    "seconds": 165.2466168,
+    "cpuPercent": 0.0,
+    "privateMiB": 139.37890625,
+    "responding": true,
+    "workingSetMiB": 207.3828125
+  },
+  {
+    "seconds": 180.2525011,
+    "cpuPercent": 0.0,
+    "privateMiB": 139.37890625,
+    "responding": true,
+    "workingSetMiB": 207.38671875
+  },
+  {
+    "seconds": 195.2618886,
+    "cpuPercent": 0.039038068675353976,
+    "privateMiB": 139.46484375,
+    "responding": true,
+    "workingSetMiB": 207.4765625
+  },
+  {
+    "seconds": 210.2842048,
+    "cpuPercent": 0.013001490409315176,
+    "privateMiB": 139.37890625,
+    "responding": true,
+    "workingSetMiB": 207.4296875
+  },
+  {
+    "seconds": 225.3018629,
+    "cpuPercent": 0.0,
+    "privateMiB": 139.2890625,
+    "responding": true,
+    "workingSetMiB": 207.375
+  },
+  {
+    "seconds": 240.3235669,
+    "cpuPercent": 0.006501010138397083,
+    "privateMiB": 139.2578125,
+    "responding": true,
+    "workingSetMiB": 207.421875
+  }
+]

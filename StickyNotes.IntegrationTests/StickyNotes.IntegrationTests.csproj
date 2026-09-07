@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><StartupObject>IntegrationRunner</StartupObject></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../StickyNotes/StickyNotes.csproj" /></ItemGroup>
+  <ItemGroup><Resource Include="../StickyNotes/Assets/app.ico" Link="Assets/app.ico" /></ItemGroup>
+</Project>

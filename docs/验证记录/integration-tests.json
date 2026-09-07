@@ -1,0 +1,132 @@
+[
+  {
+    "name": "reminder rejects invalid time without closing",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "reminder rejects past date",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "reminder form saves future local date and time",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "daily mode disables specific date",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "daily form schedules next occurrence",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "cancel reminder clears pending schedule",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "notification does not activate or enter taskbar",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "notification snooze button persists future due",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "notification completion closes card",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "localized fonts are available",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "new-note font defaults do not modify existing notes",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "unavailable fonts fall back",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "invalid focus duration rejected",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "valid focus duration persisted",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "focus pause freezes remaining time",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "focus reset applies configured duration",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "focus continues after window closes, next phase stays stopped",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "manager search empty state",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "manager searches title",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "manager delete moves note to recoverable trash",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "trash filter lists removed note",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "manager restore opens note",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "20-window edit, move, resize and viewmodel commands",
+    "pass": true,
+    "detail": "Batch layout 1060.2 ms"
+  },
+  {
+    "name": "20-window state roundtrip",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "hide all retains resident app and note records",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "show all restores 20 independent windows",
+    "pass": true,
+    "detail": ""
+  }
+]

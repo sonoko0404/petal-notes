@@ -1,0 +1,82 @@
+[
+  {
+    "name": "long text binding",
+    "pass": true,
+    "detail": "24000 characters, layout 582.9 ms"
+  },
+  {
+    "name": "save and reload Chinese text and todos",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "collapse",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "expand restores size",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "native topmost binding",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "hide preserves data",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "trash removes native window",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "restore trash",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "offscreen position recovery",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "themes and installed fonts",
+    "pass": true,
+    "detail": "5 themes, 6 fonts"
+  },
+  {
+    "name": "overdue reminder",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "snooze",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "daily completion reschedules",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "pomodoro deadline recovery",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "20 independent windows",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "soak completed",
+    "pass": true,
+    "detail": "30.03 minutes, 120 samples"
+  }
+]

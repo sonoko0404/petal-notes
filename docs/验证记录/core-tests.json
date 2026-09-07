@@ -1,0 +1,82 @@
+[
+  {
+    "name": "Unicode, todos, reminder and timer roundtrip",
+    "passed": true
+  },
+  {
+    "name": "save snapshot isolated from edits",
+    "passed": true
+  },
+  {
+    "name": "invalid primary recovers backup",
+    "passed": true
+  },
+  {
+    "name": "recovery does not replace good backup with corrupt primary",
+    "passed": true
+  },
+  {
+    "name": "two unreadable files fail without overwriting",
+    "passed": true
+  },
+  {
+    "name": "future schema refused",
+    "passed": true
+  },
+  {
+    "name": "concurrent saves serialized, latest state retained",
+    "passed": true
+  },
+  {
+    "name": "atomic writes leave no temp file",
+    "passed": true
+  },
+  {
+    "name": "daily scheduling strictly future",
+    "passed": true
+  },
+  {
+    "name": "timer uses absolute timestamps",
+    "passed": true
+  },
+  {
+    "name": "paused timer does not drift",
+    "passed": true
+  },
+  {
+    "name": "overdue focus advances once",
+    "passed": true
+  },
+  {
+    "name": "repeated deadline checks do not double count",
+    "passed": true
+  },
+  {
+    "name": "fourth focus yields long break",
+    "passed": true
+  },
+  {
+    "name": "break ends ready for manual focus start",
+    "passed": true
+  },
+  {
+    "name": "settings preserve running deadline",
+    "passed": true
+  },
+  {
+    "name": "invalid geometry normalized",
+    "passed": true
+  },
+  {
+    "name": "duplicate identifiers rejected",
+    "passed": true
+  },
+  {
+    "name": "write failure surfaced to caller",
+    "passed": true
+  },
+  {
+    "name": "saving recovers after transient failure",
+    "passed": true
+  }
+]
