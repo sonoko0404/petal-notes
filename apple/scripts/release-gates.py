@@ -18,7 +18,7 @@ def settings_errors(rows):
         expected = {"MACOSX_DEPLOYMENT_TARGET": "14.0", "SWIFT_VERSION": "6.0", "SWIFT_STRICT_CONCURRENCY": "complete",
             "ENABLE_APP_SANDBOX": "YES", "SWIFT_OPTIMIZATION_LEVEL": "-O", "SWIFT_COMPILATION_MODE": "wholemodule",
             "CODE_SIGN_ENTITLEMENTS": name + "/" + name + ".entitlements", "APP_GROUP_IDENTIFIER": "group.com.petalchecklist.shared",
-            "ICLOUD_CONTAINER_IDENTIFIER": "iCloud.com.petalchecklist"}
+            "ICLOUD_CONTAINER_IDENTIFIER": "iCloud.com.petalchecklist", "PETAL_APS_ENVIRONMENT": "production"}
         for key, value in expected.items():
             if settings.get(key) != value: errors.append(name + ": invalid " + key)
     return errors
@@ -96,7 +96,7 @@ def main():
         rows = json.loads(result.stdout); errors = settings_errors(rows); entitlement_report = {}
         for name in ["PetalChecklist", "PetalWidgets"]:
             with (root / name / (name + ".entitlements")).open("rb") as stream: entitlements = plistlib.load(stream)
-            expected = {"com.apple.developer.aps-environment": "development", "com.apple.security.app-sandbox": True,
+            expected = {"com.apple.developer.aps-environment": "$(PETAL_APS_ENVIRONMENT)", "com.apple.security.app-sandbox": True,
                 "com.apple.security.application-groups": ["$(APP_GROUP_IDENTIFIER)"],
                 "com.apple.developer.icloud-container-identifiers": ["$(ICLOUD_CONTAINER_IDENTIFIER)"],
                 "com.apple.developer.icloud-services": ["CloudKit"]}

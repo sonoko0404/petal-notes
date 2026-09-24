@@ -19,13 +19,17 @@ class ReleaseGatesTests(unittest.TestCase):
         rows = [{"target": name, "buildSettings": {"MACOSX_DEPLOYMENT_TARGET": "14.0", "SWIFT_VERSION": "6.0",
             "SWIFT_STRICT_CONCURRENCY": "complete", "ENABLE_APP_SANDBOX": "YES", "SWIFT_OPTIMIZATION_LEVEL": "-O",
             "SWIFT_COMPILATION_MODE": "wholemodule", "CODE_SIGN_ENTITLEMENTS": name + "/" + name + ".entitlements",
-            "APP_GROUP_IDENTIFIER": "group.com.petalchecklist.shared", "ICLOUD_CONTAINER_IDENTIFIER": "iCloud.com.petalchecklist"}}
+            "APP_GROUP_IDENTIFIER": "group.com.petalchecklist.shared", "ICLOUD_CONTAINER_IDENTIFIER": "iCloud.com.petalchecklist",
+            "PETAL_APS_ENVIRONMENT": "production"}}
             for name in ["PetalChecklist", "PetalWidgets"]]
         self.assertEqual(gates.settings_errors(rows), [])
         self.assertTrue(gates.settings_errors(rows[:1]))
         for key in rows[0]["buildSettings"]:
             broken = copy.deepcopy(rows); broken[0]["buildSettings"][key] = "wrong"
             self.assertTrue(gates.settings_errors(broken), key)
+        broken = copy.deepcopy(rows)
+        broken[0]["buildSettings"]["PETAL_APS_ENVIRONMENT"] = "development"
+        self.assertTrue(gates.settings_errors(broken), "Release APNs must reject development")
     def testPackagePrivacyDeclaresOnlyItsActualRequiredAPI(self):
         for package, category, reason in [("PetalPersistence", "FileTimestamp", "C617.1"), ("PetalActions", "UserDefaults", "1C8F.1")]:
             manifest = {"NSPrivacyTracking": False, "NSPrivacyTrackingDomains": [], "NSPrivacyCollectedDataTypes": [],
