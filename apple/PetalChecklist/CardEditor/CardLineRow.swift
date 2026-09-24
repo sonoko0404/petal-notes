@@ -27,6 +27,16 @@ struct CardLineRow: View {
             ))
             .focused($focused)
             .accessibilityIdentifier("line.text.\(line.id.rawValue)")
+            .onKeyPress(.upArrow, phases: .down) { press in
+                guard press.modifiers.contains(.command), press.modifiers.contains(.option) else { return .ignored }
+                move(.up)
+                return .handled
+            }
+            .onKeyPress(.downArrow, phases: .down) { press in
+                guard press.modifiers.contains(.command), press.modifiers.contains(.option) else { return .ignored }
+                move(.down)
+                return .handled
+            }
             Menu {
                 Button(line.kind == .todo ? "Convert to Text" : "Convert to Todo") {
                     Task { do { try await model.convert(lineID: line.id, to: line.kind == .todo ? .text : .todo) }
@@ -41,7 +51,9 @@ struct CardLineRow: View {
             }
             .accessibilityIdentifier(line.kind == .todo ? "line.kind.todo" : "line.kind.text")
         }
-        .onMoveCommand { direction in move(direction == .up ? .up : .down) }
+        .onMoveCommand { direction in
+            if let moveDirection = Self.moveDirection(for: direction) { move(moveDirection) }
+        }
         .onDrag { NSItemProvider(object: line.id.rawValue.uuidString as NSString) }
         .onDrop(of: [UTType.plainText.identifier], isTargeted: nil) { providers in
             guard let provider = providers.first else { return false }
@@ -61,5 +73,14 @@ struct CardLineRow: View {
 
     private func move(_ direction: MoveDirection) {
         Task { do { try await model.move(lineID: line.id, direction: direction) } catch { onError(error) } }
+    }
+
+    static func moveDirection(for direction: MoveCommandDirection) -> MoveDirection? {
+        switch direction {
+        case .up: .up
+        case .down: .down
+        case .left, .right: nil
+        @unknown default: nil
+        }
     }
 }

@@ -5,17 +5,26 @@ struct CardEditorView: View {
     let model: CardEditorModel
     let onArchive: () -> Void
     let onTrash: () -> Void
-    @State private var newLine = ""
+    let onRestore: () -> Void
     @State private var actionError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                TextField("Card title", text: Binding(get: { model.title }, set: { model.editTitle($0) }))
-                    .font(.title2)
-                    .accessibilityIdentifier("editor.title")
-                Button("Archive", action: onArchive).accessibilityIdentifier("card.archive")
-                Button("Trash", action: onTrash).accessibilityIdentifier("card.trash")
+            if model.isReadOnly {
+                HStack {
+                    Text(model.title).font(.title2).accessibilityIdentifier("editor.title.readOnly")
+                    Spacer()
+                    Button("Restore", action: onRestore).accessibilityIdentifier("editor.restore")
+                }
+                Text("In Trash").foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    TextField("Card title", text: Binding(get: { model.title }, set: { model.editTitle($0) }))
+                        .font(.title2)
+                        .accessibilityIdentifier("editor.title")
+                    Button("Archive", action: onArchive).accessibilityIdentifier("card.archive")
+                    Button("Trash", action: onTrash).accessibilityIdentifier("card.trash")
+                }
             }
             if case .failed(let message) = model.saveState {
                 HStack {
@@ -29,24 +38,33 @@ struct CardEditorView: View {
             List {
                 ForEach(model.lines) { line in
                     CardLineRow(line: line, model: model) { actionError = $0.localizedDescription }
+                        .disabled(model.isReadOnly)
                 }
             }
             .accessibilityIdentifier("editor.lines")
-            HStack {
-                TextField("New todo", text: $newLine)
-                    .accessibilityIdentifier("editor.newLine")
-                    .onSubmit(addLine)
-                Button("Add Todo", action: addLine).accessibilityIdentifier("editor.addLine")
+            if !model.isReadOnly {
+                if let newLineError = model.newLineError {
+                    HStack {
+                        Text(newLineError).foregroundStyle(.red)
+                        Button("Retry", action: addLine).accessibilityIdentifier("editor.newLineRetry")
+                    }
+                }
+                HStack {
+                    TextField("New todo", text: Binding(get: { model.newLineDraft }, set: { model.editNewLine($0) }))
+                        .accessibilityIdentifier("editor.newLine")
+                        .onSubmit(addLine)
+                    Button("Add Todo", action: addLine)
+                        .accessibilityIdentifier("editor.addLine")
+                        .disabled(model.isAddingLine)
+                }
             }
         }
         .padding()
     }
 
     private func addLine() {
-        let draft = newLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !draft.isEmpty else { return }
         Task {
-            do { try await model.addLine(text: draft); newLine = "" }
+            do { _ = try await model.submitNewLine(); actionError = nil }
             catch { actionError = error.localizedDescription }
         }
     }

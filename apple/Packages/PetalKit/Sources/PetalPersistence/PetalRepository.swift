@@ -11,6 +11,7 @@ public protocol PetalRepository: Sendable {
     func setCompleted(lineID: LineID, completed: Bool, now: Date) async throws
     func reorder(cardID: CardID, orderedLineIDs: [LineID], now: Date) async throws
     func moveCard(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) async throws
+    func moveCardEnsuringInbox(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) async throws
     func search(_ query: String) async throws -> [SearchResult]
     func purgeExpiredTrash(now: Date) async throws
     func captureConflict(cardID: CardID, lineID: LineID?, losingPayload: Data, now: Date) async throws -> ConflictArtifact

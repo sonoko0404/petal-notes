@@ -30,9 +30,10 @@ final class LibraryAndEditorUITests: XCTestCase {
         XCTAssertTrue(app.buttons["line.kind.text"].exists)
         newLine.click()
         newLine.typeText("Book ride\r")
-        app.buttons["line.kind.todo"].click()
-        app.menuItems["Move Up"].click()
         let orderedLines = app.textFields.matching(NSPredicate(format: "identifier BEGINSWITH 'line.text.'"))
+        let secondLine = orderedLines.element(boundBy: 1)
+        secondLine.click()
+        secondLine.typeKey(.upArrow, modifierFlags: [.command, .option])
         XCTAssertEqual(orderedLines.element(boundBy: 0).value as? String, "Book ride")
         app.buttons["card.archive"].click()
         app.buttons["scope.archive"].click()
@@ -44,7 +45,10 @@ final class LibraryAndEditorUITests: XCTestCase {
         app.buttons["card.trash"].click()
         app.buttons["scope.trash"].click()
         XCTAssertTrue(app.staticTexts["Weekend"].waitForExistence(timeout: 5))
-        app.buttons["card.restore"].click()
+        app.staticTexts["Weekend"].click()
+        XCTAssertTrue(app.buttons["editor.restore"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.textFields["editor.title"].exists)
+        app.buttons["editor.restore"].click()
     }
 
     func testSearchShowsSourceScopeLabels() {
@@ -72,12 +76,25 @@ final class LibraryAndEditorUITests: XCTestCase {
         line.typeText(" revised")
         XCTAssertTrue(app.buttons["editor.retry"].waitForExistence(timeout: 5))
         app.buttons["editor.retry"].click()
-        XCTAssertFalse(app.buttons["editor.retry"].waitForExistence(timeout: 2))
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["editor.retry"])
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 2), .completed)
         app.buttons["scope.inbox"].click()
         app.buttons["scope.allCards"].click()
         app.staticTexts["Active sample"].click()
         let persisted = app.textFields.matching(NSPredicate(format: "identifier BEGINSWITH 'line.text.'")).firstMatch
         XCTAssertTrue(persisted.waitForExistence(timeout: 5))
         XCTAssertTrue((persisted.value as? String)?.contains("revised") == true)
+    }
+
+    func testInboxMoveOffersExplicitReplacementChoice() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-ui-sample-cards"]
+        app.launch()
+        XCTAssertTrue(app.buttons["card.archive"].waitForExistence(timeout: 5))
+        app.buttons["card.archive"].click()
+        XCTAssertTrue(app.buttons["Active sample"].waitForExistence(timeout: 5))
+        app.buttons["Active sample"].click()
+        app.buttons["scope.inbox"].click()
+        XCTAssertTrue(app.staticTexts["Active sample"].waitForExistence(timeout: 5))
     }
 }

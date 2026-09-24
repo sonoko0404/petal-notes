@@ -3,19 +3,35 @@ import SwiftUI
 import PetalCore
 
 struct RootView: View {
-    @State private var router = AppRouter()
-    @State private var environment: AppEnvironment?
-    @State private var library: CardLibraryModel?
-    @State private var editor: CardEditorModel?
+    @State private var router: AppRouter?
     @State private var startupError: String?
+    @State private var pendingInboxMove: PendingInboxMove?
+
+    private struct PendingInboxMove {
+        let cardID: CardID
+        let status: CardStatus
+        let candidates: [Card]
+    }
 
     var body: some View {
         Group {
-            if let library, environment != nil {
-                NavigationSplitView {
+            if let router {
+                VStack(spacing: 0) {
+                    if let error = router.errorMessage {
+                        HStack {
+                            Text(error)
+                            Button("Retry") { Task { await router.retryError() } }
+                                .accessibilityIdentifier("app.retry")
+                        }
+                        .padding(8)
+                        .frame(maxWidth: .infinity)
+                        .background(.red.opacity(0.12))
+                        .accessibilityIdentifier("app.error")
+                    }
+                    NavigationSplitView {
                     List {
                         ForEach(LibraryScope.allCases) { scope in
-                            Button { Task { await show(scope) } } label: {
+                            Button { Task { await router.show(scope) } } label: {
                                 Label(scopeName(scope), systemImage: icon(scope))
                             }
                             .buttonStyle(.plain)
@@ -24,13 +40,13 @@ struct RootView: View {
                     }
                     .navigationTitle("Petal Checklist")
                     .frame(minWidth: 160)
-                } content: {
-                    CardLibraryView(model: library, selectedCardID: router.selectedCardID,
-                                    onSelect: { id in Task { await select(id) } },
-                                    onCreate: { Task { await createCard() } },
-                                    onRestore: { id in Task { await restore(id) } })
+                    } content: {
+                    CardLibraryView(model: router.library, selectedCardID: router.selectedCardID,
+                                    onSelect: { id in Task { await router.select(id) } },
+                                    onCreate: { Task { await router.createCard() } },
+                                    onRestore: { id in Task { await router.restore(id) } })
                         .frame(minWidth: 220)
-                } detail: {
+                    } detail: {
                     if router.scope == .settings {
                         VStack(alignment: .leading) {
                             Text("Settings").font(.title)
@@ -38,15 +54,32 @@ struct RootView: View {
                         }
                         .padding()
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    } else if let editor {
+                    } else if let editor = router.editor {
                         CardEditorView(model: editor,
                                        onArchive: { Task { await moveSelected(to: .archived) } },
-                                       onTrash: { Task { await moveSelected(to: .trashed) } })
+                                       onTrash: { Task { await moveSelected(to: .trashed) } },
+                                       onRestore: { Task { await router.restore(editor.cardID) } })
+                            .disabled(router.isTransitioning)
                     } else {
                         ContentUnavailableView("Select a Card", systemImage: "checklist")
                     }
+                    }
                 }
-                .background(WindowCloseGuard { await editor?.flushPending() ?? true })
+                .background(WindowCloseGuard { await router.prepareClose() })
+                .confirmationDialog("Choose New Inbox", isPresented: Binding(
+                    get: { pendingInboxMove != nil },
+                    set: { if !$0 { pendingInboxMove = nil } }
+                ), titleVisibility: .visible) {
+                    if let pendingInboxMove {
+                        ForEach(pendingInboxMove.candidates) { card in
+                            Button(card.title) {
+                                guard router.selectedCardID == pendingInboxMove.cardID else { return }
+                                Task { await router.moveSelected(to: pendingInboxMove.status, replacementInbox: card.id) }
+                                self.pendingInboxMove = nil
+                            }
+                        }
+                    }
+                }
             } else if let startupError {
                 ContentUnavailableView("Unable to Open Cards", systemImage: "exclamationmark.triangle",
                                        description: Text(startupError))
@@ -55,14 +88,14 @@ struct RootView: View {
             }
         }
         .task {
-            guard library == nil else { return }
+            guard router == nil else { return }
             do {
                 let opened = try await AppEnvironment.make()
                 let model = CardLibraryModel(repository: opened.repository)
                 try await model.show(.inbox)
-                environment = opened
-                library = model
-                if let inbox = model.cards.first { await select(inbox.id) }
+                let navigation = AppRouter(repository: opened.repository, library: model)
+                router = navigation
+                if let inbox = model.cards.first { await navigation.select(inbox.id) }
             } catch {
                 startupError = error.localizedDescription
             }
@@ -79,49 +112,19 @@ struct RootView: View {
         }
     }
 
-    private func show(_ scope: LibraryScope) async {
-        if let editor, !(await editor.flushPending()) { return }
-        do {
-            try await library?.show(scope)
-            router.scope = scope
-            router.selectedCardID = nil
-            editor = nil
-        } catch { library?.errorMessage = error.localizedDescription }
-    }
-
-    private func select(_ id: CardID) async {
-        if let editor, !(await editor.flushPending()) { return }
-        guard let environment else { return }
-        let next = CardEditorModel(cardID: id, repository: environment.repository)
-        do {
-            try await next.load()
-            editor = next
-            router.selectedCardID = id
-        } catch { library?.errorMessage = error.localizedDescription }
-    }
-
-    private func createCard() async {
-        if let editor, !(await editor.flushPending()) { return }
-        do {
-            guard let card = try await library?.createCard(title: String(localized: "Untitled Card")) else { return }
-            router.scope = .allCards
-            await select(card.id)
-        } catch { library?.errorMessage = error.localizedDescription }
-    }
-
     private func moveSelected(to status: CardStatus) async {
-        guard let id = router.selectedCardID, let library else { return }
-        if let editor, !(await editor.flushPending()) { return }
+        guard let router, let id = router.selectedCardID else { return }
         do {
-            try await library.move(id, to: status)
-            router.selectedCardID = nil
-            editor = nil
-        } catch { library.errorMessage = error.localizedDescription }
-    }
-
-    private func restore(_ id: CardID) async {
-        do { try await library?.restore(id) }
-        catch { library?.errorMessage = error.localizedDescription }
+            let candidates = try await router.library.replacementCandidates(for: id)
+            guard router.selectedCardID == id else { return }
+            if candidates.count > 1 {
+                pendingInboxMove = PendingInboxMove(cardID: id, status: status, candidates: candidates)
+            } else {
+                await router.moveSelected(to: status, replacementInbox: candidates.first?.id)
+            }
+        } catch {
+            router.present(error) { await moveSelected(to: status) }
+        }
     }
 }
 

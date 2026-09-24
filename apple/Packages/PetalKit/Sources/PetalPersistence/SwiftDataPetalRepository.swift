@@ -32,6 +32,9 @@ public struct SwiftDataPetalRepository: PetalRepository {
     public func moveCard(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) async throws {
         try await store.moveCard(id, to: status, replacementInbox: replacementInbox, now: now)
     }
+    public func moveCardEnsuringInbox(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) async throws {
+        try await store.moveCardEnsuringInbox(id, to: status, replacementInbox: replacementInbox, now: now)
+    }
     public func search(_ query: String) async throws -> [SearchResult] { try await store.search(query) }
     public func purgeExpiredTrash(now: Date) async throws { try await store.purgeExpiredTrash(now: now) }
     public func captureConflict(cardID: CardID, lineID: LineID?, losingPayload: Data, now: Date) async throws -> ConflictArtifact {
@@ -253,25 +256,36 @@ private actor RepositoryStore {
     }
 
     func moveCard(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) throws {
-        try transaction {
+        try transaction { try applyMoveCard(id, to: status, replacementInbox: replacementInbox, createReplacement: false, now: now) }
+    }
+
+    func moveCardEnsuringInbox(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) throws {
+        try transaction { try applyMoveCard(id, to: status, replacementInbox: replacementInbox, createReplacement: true, now: now) }
+    }
+
+    private func applyMoveCard(_ id: CardID, to status: CardStatus, replacementInbox: CardID?,
+                               createReplacement: Bool, now: Date) throws {
             let stored = try storedCard(id)
             var value = try stored.value()
             guard value.status != status else { return }
             if value.isInbox && status != .active {
-                guard let replacementInbox, replacementInbox != id,
-                      let replacementValue = try cards(scope: .active).first(where: { $0.id == replacementInbox }) else {
+                let candidates = try cards(scope: .active).filter { $0.id != id }
+                let selected = replacementInbox ?? (createReplacement && candidates.count == 1 ? candidates[0].id : nil)
+                if let selected, let replacementValue = candidates.first(where: { $0.id == selected }) {
+                    var replacement = replacementValue
+                    replacement.isInbox = true
+                    try saveCard(replacement, stored: storedCard(selected), now: now)
+                } else if selected == nil && createReplacement && candidates.isEmpty {
+                    _ = try insertCard(title: "Inbox", isInbox: true, now: now)
+                } else {
                     throw RepositoryError.replacementInboxRequired
                 }
-                var replacement = replacementValue
-                replacement.isInbox = true
-                try saveCard(replacement, stored: storedCard(replacementInbox), now: now)
                 value.isInbox = false
             }
             value.status = status
             value.archivedAt = status == .archived ? now : nil
             value.deletedAt = status == .trashed ? now : nil
             try saveCard(value, stored: stored, now: now)
-        }
     }
 
     func search(_ query: String) throws -> [SearchResult] {

@@ -7,8 +7,6 @@ struct CardLibraryView: View {
     let onSelect: (CardID) -> Void
     let onCreate: () -> Void
     let onRestore: (CardID) -> Void
-    @State private var searchText = ""
-
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -18,22 +16,34 @@ struct CardLibraryView: View {
                     .accessibilityLabel(Text("New Card"))
                     .accessibilityIdentifier("card.create")
             }.padding()
-            TextField("Search", text: $searchText)
+            TextField("Search", text: Binding(get: { model.query }, set: { model.setQuery($0) }))
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("library.search")
                 .padding(.horizontal)
-                .onChange(of: searchText) { _, value in
-                    Task { try? await model.search(value) }
+            if let errorMessage = model.errorMessage {
+                HStack {
+                    Text(errorMessage)
+                    Button("Retry") { Task { await model.retryQuery() } }
+                        .accessibilityIdentifier("library.retry")
                 }
+                .padding(.horizontal)
+                .accessibilityIdentifier("library.error")
+            }
             List {
-                if !searchText.isEmpty {
+                if !model.query.isEmpty {
                     ForEach(model.searchResults) { item in
-                        Button { onSelect(item.result.cardID) } label: {
+                        HStack {
+                            Button { onSelect(item.result.cardID) } label: {
                             VStack(alignment: .leading) {
                                 Text(item.result.title)
                                 Text(item.result.snippet).font(.caption).foregroundStyle(.secondary)
                                 Text(scopeName(item.scope)).font(.caption2).foregroundStyle(.secondary)
                                     .accessibilityIdentifier("scopeLabel.\(item.scope.rawValue)")
+                            }
+                            }
+                            if item.scope == .archive || item.scope == .trash {
+                                Button("Restore") { onRestore(item.result.cardID) }
+                                    .accessibilityIdentifier("card.restore")
                             }
                         }
                     }
@@ -55,7 +65,6 @@ struct CardLibraryView: View {
             }
             .accessibilityIdentifier("library.cards")
         }
-        .onChange(of: model.scope) { _, _ in searchText = "" }
     }
 }
 

@@ -2,6 +2,7 @@ import XCTest
 import PetalCore
 import PetalPersistence
 import PetalTestSupport
+import SwiftUI
 @testable import PetalChecklist
 
 @MainActor
@@ -81,5 +82,102 @@ final class CardEditorModelTests: XCTestCase {
         let afterRetry = try await setup.lines(cardID: card.id).first?.text
         XCTAssertEqual(afterRetry, "Draft")
         XCTAssertTrue(model.unsavedText.isEmpty)
+    }
+
+    func testFlushDrainsEditArrivingDuringSuspendedWrite() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Old", now: .now)
+        let repository = ControlledRepository(base: base)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        repository.titleGate.pauseNext()
+        model.editTitle("First")
+        let flush = Task { await model.flushPending() }
+        await repository.titleGate.waitUntilEntered()
+        model.editTitle("Latest")
+        repository.titleGate.resume()
+        let flushed = await flush.value
+        XCTAssertTrue(flushed)
+        let persisted = try await base.card(id: card.id)
+        XCTAssertEqual(persisted?.title, "Latest")
+        XCTAssertNil(model.unsavedTitle)
+    }
+
+    func testNewLineDraftSurvivesInFlightEditAndRejectsDuplicateSubmission() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Card", now: .now)
+        let repository = ControlledRepository(base: base)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        model.editNewLine("First")
+        repository.addGate.pauseNext()
+        let submission = Task { try await model.submitNewLine() }
+        await repository.addGate.waitUntilEntered()
+        model.editNewLine("Second")
+        let duplicate = try await model.submitNewLine()
+        XCTAssertFalse(duplicate)
+        repository.addGate.resume()
+        let submitted = try await submission.value
+        XCTAssertTrue(submitted)
+        XCTAssertEqual(model.newLineDraft, "Second")
+        let firstLines = try await base.lines(cardID: card.id).map(\.text)
+        XCTAssertEqual(firstLines, ["First"])
+        let secondSubmitted = try await model.submitNewLine()
+        XCTAssertTrue(secondSubmitted)
+        let bothLines = try await base.lines(cardID: card.id).map(\.text)
+        XCTAssertEqual(bothLines, ["First", "Second"])
+    }
+
+    func testNewLineSubmissionKeepsNewRevisionEvenWhenTextReturnsToSameValue() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Card", now: .now)
+        let repository = ControlledRepository(base: base)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        model.editNewLine("Same")
+        repository.addGate.pauseNext()
+        let submission = Task { try await model.submitNewLine() }
+        await repository.addGate.waitUntilEntered()
+        model.editNewLine("Changed")
+        model.editNewLine("Same")
+        repository.addGate.resume()
+        _ = try await submission.value
+        XCTAssertEqual(model.newLineDraft, "Same")
+    }
+
+    func testTrashedCardLoadsReadOnlyAndCanBeRestored() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Trash me", now: .now)
+        try await repository.moveCard(card.id, to: .trashed, replacementInbox: nil, now: .now)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        XCTAssertTrue(model.isReadOnly)
+        model.editTitle("Should not save")
+        XCTAssertNil(model.unsavedTitle)
+        try await repository.moveCard(card.id, to: .active, replacementInbox: nil, now: .now)
+        try await model.load()
+        XCTAssertFalse(model.isReadOnly)
+    }
+
+    func testMoveCommandIgnoresHorizontalDirections() {
+        XCTAssertEqual(CardLineRow.moveDirection(for: .up), .up)
+        XCTAssertEqual(CardLineRow.moveDirection(for: .down), .down)
+        XCTAssertNil(CardLineRow.moveDirection(for: .left))
+        XCTAssertNil(CardLineRow.moveDirection(for: .right))
+    }
+
+    func testMoveAtOrderBoundaryDoesNotWriteOrChangeOrder() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Card", now: .now)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        try await model.addLine(text: "First")
+        try await model.addLine(text: "Last")
+        let beforeCount = try await repository.pendingOutboxCount()
+        try await model.move(lineID: model.lines[0].id, direction: .up)
+        try await model.move(lineID: model.lines[1].id, direction: .down)
+        XCTAssertEqual(model.lines.map(\.text), ["First", "Last"])
+        let afterCount = try await repository.pendingOutboxCount()
+        XCTAssertEqual(afterCount, beforeCount)
     }
 }

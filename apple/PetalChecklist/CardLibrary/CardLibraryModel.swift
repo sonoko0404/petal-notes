@@ -17,13 +17,43 @@ final class CardLibraryModel {
     private(set) var searchResults: [LibrarySearchResult] = []
     private(set) var query = ""
     var errorMessage: String?
+    @ObservationIgnored private var searchGeneration = 0
 
     init(repository: any PetalRepository) { self.repository = repository }
 
     func show(_ scope: LibraryScope) async throws {
         self.scope = scope
-        query = ""
-        searchResults = []
+        try await refresh()
+    }
+
+    func refresh() async throws {
+        searchGeneration += 1
+        let generation = searchGeneration
+        do { try await load(query, generation: generation) }
+        catch {
+            if generation == searchGeneration { errorMessage = error.localizedDescription }
+            throw error
+        }
+    }
+
+    private func load(_ text: String, generation: Int) async throws {
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let matches = try await repository.search(text)
+            let sourceCards = Dictionary(uniqueKeysWithValues: try await repository.cards(scope: .all).map { ($0.id, $0) })
+            guard generation == searchGeneration, query == text else { return }
+            searchResults = matches.compactMap { match in
+                guard let card = sourceCards[match.cardID] else { return nil }
+                let source: LibraryScope
+                switch card.status {
+                case .active: source = card.isInbox ? .inbox : .allCards
+                case .archived: source = .archive
+                case .trashed: source = .trash
+                }
+                return LibrarySearchResult(result: match, scope: source)
+            }
+            errorMessage = nil
+            return
+        }
         let all: [Card]
         switch scope {
         case .inbox, .allCards: all = try await repository.cards(scope: .active)
@@ -31,48 +61,55 @@ final class CardLibraryModel {
         case .trash: all = try await repository.cards(scope: .trashed)
         case .settings: all = []
         }
+        guard generation == searchGeneration, query == text else { return }
         cards = scope == .inbox ? all.filter(\.isInbox) : all
+        searchResults = []
+        errorMessage = nil
     }
 
     func search(_ text: String) async throws {
         query = text
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            searchResults = []
-            try await show(scope)
-            return
+        searchGeneration += 1
+        let generation = searchGeneration
+        do { try await load(text, generation: generation) }
+        catch {
+            if generation == searchGeneration { errorMessage = error.localizedDescription }
+            throw error
         }
-        let matches = try await repository.search(text)
-        let sourceCards = Dictionary(uniqueKeysWithValues: try await repository.cards(scope: .all).map { ($0.id, $0) })
-        searchResults = matches.compactMap { match in
-            guard let card = sourceCards[match.cardID] else { return nil }
-            let source: LibraryScope
-            switch card.status {
-            case .active: source = card.isInbox ? .inbox : .allCards
-            case .archived: source = .archive
-            case .trashed: source = .trash
+    }
+
+    func setQuery(_ text: String) {
+        query = text
+        searchGeneration += 1
+        let generation = searchGeneration
+        Task {
+            do { try await load(text, generation: generation) }
+            catch {
+                if generation == searchGeneration { errorMessage = error.localizedDescription }
             }
-            return LibrarySearchResult(result: match, scope: source)
         }
+    }
+
+    func retryQuery() async {
+        do { try await refresh() } catch { }
     }
 
     @discardableResult
     func createCard(title: String) async throws -> Card {
         let card = try await repository.createCard(title: title, now: .now)
-        try await show(.allCards)
+        scope = .allCards
+        do { try await refresh() } catch { /* the card is committed; Retry refreshes the view */ }
         return card
     }
 
-    func move(_ id: CardID, to status: CardStatus) async throws {
-        let current = try await repository.card(id: id)
-        var replacement: CardID?
-        if current?.isInbox == true && status != .active {
-            replacement = try await repository.cards(scope: .active).first(where: { $0.id != id })?.id
-            if replacement == nil {
-                replacement = try await repository.createCard(title: String(localized: "Inbox"), now: .now).id
-            }
-        }
-        try await repository.moveCard(id, to: status, replacementInbox: replacement, now: .now)
-        try await show(scope)
+    func replacementCandidates(for id: CardID) async throws -> [Card] {
+        guard try await repository.card(id: id)?.isInbox == true else { return [] }
+        return try await repository.cards(scope: .active).filter { $0.id != id }
+    }
+
+    func move(_ id: CardID, to status: CardStatus, replacementInbox: CardID? = nil) async throws {
+        try await repository.moveCardEnsuringInbox(id, to: status, replacementInbox: replacementInbox, now: .now)
+        do { try await refresh() } catch { /* the move is committed; Retry refreshes the view */ }
     }
 
     func restore(_ id: CardID) async throws {
