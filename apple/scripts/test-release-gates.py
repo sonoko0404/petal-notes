@@ -2,7 +2,10 @@
 """Independent adversarial fixtures for release decisions, not string-presence tests."""
 import copy
 import importlib.util
+import json
 import pathlib
+import subprocess
+import tempfile
 import unittest
 import sys
 sys.dont_write_bytecode = True
@@ -100,6 +103,62 @@ class ReleaseGatesTests(unittest.TestCase):
             for row in runs: row[name] = threshold
             self.assertEqual(gates.performance(runs)[name], "FAIL")
             runs[1][name] = None
-            self.assertEqual(gates.performance(runs)[name], "BLOCKED")
+            if name in ("search_ms", "widget_save_ms"):
+                with self.assertRaises(ValueError): gates.performance(runs)
+            else:
+                self.assertEqual(gates.performance(runs)[name], "BLOCKED")
+
+    def performanceCLI(self, logs):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for index, log in enumerate(logs):
+                path = pathlib.Path(tmp) / (str(index) + ".log")
+                path.write_text(log)
+                paths.append(str(path))
+            return subprocess.run([sys.executable, str(pathlib.Path(__file__).with_name("release-gates.py")),
+                "performance", *paths], capture_output=True, text=True, timeout=10)
+
+    def testCLIParsesWholeScientificValueAndPreservesThreeRunRule(self):
+        log = "PETAL_PERF search_ms=1e9\nPETAL_PERF widget_save_ms=2.5e2\n** TEST SUCCEEDED **\n"
+        result = self.performanceCLI([log] * 3)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["runs"][0]["search_ms"], 1000000000)
+        self.assertEqual(report["results"]["search_ms"], "FAIL")
+        result = self.performanceCLI([log, log.replace("1e9", "2.5e2"), log])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["results"]["search_ms"], "PASS")
+        self.assertEqual(report["results"]["cold_editable_ms"], "BLOCKED")
+        self.assertEqual(report["results"]["hot_focus_ms"], "BLOCKED")
+
+    def testCLIRejectsInvalidOrMissingRequiredValueInAnyRun(self):
+        valid = "PETAL_PERF search_ms=250\nPETAL_PERF widget_save_ms=300\n** TEST SUCCEEDED **\n"
+        for key, original in [("search_ms", "250"), ("widget_save_ms", "300")]:
+            for token in ["250garbage", "-1", "NaN", "inf", "1e999", "", "250 extra", "250_000"]:
+                with self.subTest(key=key, token=token):
+                    broken = valid.replace(key + "=" + original, key + "=" + token)
+                    result = self.performanceCLI([valid, broken, valid])
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+            missing = valid.replace("PETAL_PERF " + key + "=" + original + "\n", "")
+            for logs in [[missing] * 3, [valid, missing, valid]]:
+                with self.subTest(key=key, missing=logs):
+                    self.assertNotEqual(self.performanceCLI(logs).returncode, 0)
+            for duplicate in [original, "NaN", "-1", ""]:
+                with self.subTest(key=key, duplicate=duplicate):
+                    result = self.performanceCLI([valid, valid + "PETAL_PERF " + key + "=" + duplicate + "\n", valid])
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def testCLIAllowsAbsentUIButRejectsPresentMalformedUIAndUnsuccessfulRun(self):
+        valid = "PETAL_PERF search_ms=250\nPETAL_PERF widget_save_ms=300\n** TEST SUCCEEDED **\n"
+        result = self.performanceCLI([valid] * 3)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for key in ["cold_editable_ms", "hot_focus_ms"]:
+            for token in ["NaN", "-1", "250garbage", ""]:
+                with self.subTest(key=key, token=token):
+                    result = self.performanceCLI([valid, valid + "PETAL_PERF " + key + "=" + token + "\n", valid])
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotEqual(self.performanceCLI([valid, valid.replace("** TEST SUCCEEDED **", "** TEST FAILED **"), valid]).returncode, 0)
+        self.assertNotEqual(self.performanceCLI([valid, valid]).returncode, 0)
 
 if __name__ == "__main__": unittest.main()

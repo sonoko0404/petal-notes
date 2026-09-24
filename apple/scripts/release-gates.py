@@ -9,6 +9,7 @@ import re
 import subprocess
 
 BUDGETS = {"search_ms": 300, "widget_save_ms": 1000, "cold_editable_ms": 2000, "hot_focus_ms": 300}
+OPTIONAL_UI_METRICS = {"cold_editable_ms", "hot_focus_ms"}
 def settings_errors(rows):
     errors = []
     targets = {item["target"]: item["buildSettings"] for item in rows}
@@ -76,6 +77,8 @@ def performance(runs):
     for name, limit in BUDGETS.items():
         values = [row.get(name) for row in runs]
         for value in values:
+            if value is None and name not in OPTIONAL_UI_METRICS:
+                raise ValueError("Missing required duration: " + name)
             if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value < 0):
                 raise ValueError("Invalid duration: " + name)
         result[name] = "BLOCKED" if None in values else "FAIL" if all(v >= limit for v in values) else "PASS"
@@ -133,8 +136,11 @@ def main():
         text = pathlib.Path(name).read_text()
         values = {}
         for key in BUDGETS:
-            matches = re.findall(r"PETAL_PERF " + key + r"=([0-9.]+)", text)
+            # Consume the entire value, not a numeric prefix (e.g. 1e9 or 250garbage).
+            matches = re.findall(r"\bPETAL_PERF " + key + r"=([^\r\n]*)", text)
             if len(matches) > 1: raise ValueError("Repeated metric in run: " + key)
+            if matches and not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", matches[0].strip()):
+                raise ValueError("Malformed duration: " + key)
             values[key] = float(matches[0]) if matches else None
         if "** TEST SUCCEEDED **" not in text: raise ValueError("Unsuccessful Release test run: " + name)
         runs.append(values)
