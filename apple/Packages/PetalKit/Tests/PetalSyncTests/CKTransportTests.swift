@@ -5,6 +5,169 @@ import PetalCore
 import PetalPersistence
 @testable import PetalSync
 
+private actor MixedAtomicEngineFixture: SyncEngineDriving {
+    private var buffer = try! EngineEventBuffer(checkpoint: nil)
+    private var firstUnknownSave: Bool
+    private let reverse: Bool
+    private(set) var physicalDeleteAttempts: [String] = []
+    init(firstUnknownSave: Bool, reverse: Bool) { self.firstUnknownSave = firstUnknownSave; self.reverse = reverse }
+    func fetch(checkpoint: Data?) async throws -> CloudFetchResult {
+        buffer = try EngineEventBuffer(checkpoint: checkpoint)
+        return try buffer.fetchResult()
+    }
+    func send(_ records: [ReplicatedRecord]) async throws -> EngineSendResult {
+        buffer.beginSend()
+        let plan = try buffer.prepareSend(records)
+        physicalDeleteAttempts += plan.deletions.values.map(\.recordName)
+        var failures: [FailedRecordChange] = []
+        if !plan.deletions.isEmpty {
+            if firstUnknownSave {
+                let missingSave = try #require(plan.records.first { $0.recordType == "PTTombstone" })
+                failures = plan.records.map { .save($0, CKError($0.recordID == missingSave.recordID ? .unknownItem : .batchRequestFailed)) }
+                failures += plan.deletions.values.map { .delete($0, CKError(.batchRequestFailed)) }
+                firstUnknownSave = false
+            } else {
+                // Deterministic external boundary: targets are already absent.
+                // Retrying a physical delete would abort the same atomic batch.
+                failures = plan.records.map { .save($0, CKError(.batchRequestFailed)) }
+                failures += plan.deletions.values.map { .delete($0, CKError(.unknownItem)) }
+            }
+        }
+        buffer.didSend(savedRecords: failures.isEmpty ? plan.records : [], deletedRecordIDs: [],
+            failures: reverse ? Array(failures.reversed()) : failures)
+        return try buffer.sendResult()
+    }
+    func cancel() async {}
+}
+
+@Test(arguments: [false, true], [false, true])
+func mixedAtomicRecoveryMakesProgressAcrossRestartAndRepeatedReset(unknownSave: Bool, reverse: Bool) async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let instant = Date(timeIntervalSince1970: 1_800_000_000)
+    let card = try await repository.createCard(title: "Removed", now: instant)
+    try await repository.deleteAllData(resetGeneration: UUID(), now: instant.addingTimeInterval(1))
+    let engine = MixedAtomicEngineFixture(firstUnknownSave: unknownSave, reverse: reverse)
+    let attempts = unknownSave ? 3 : 2
+    for attempt in 1...attempts {
+        let timestamp = instant.addingTimeInterval(Double(attempt) * 10)
+        let restarted = CloudSyncCoordinator(repository: repository, transport: CKSyncTransport(engine: engine), now: { timestamp },
+            sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
+        await restarted.sync(reason: .launch)
+        if attempt < attempts { #expect(try await repository.pendingOutboxCount() == 3) }
+        else {
+            #expect(try await repository.pendingOutboxCount() == 0)
+            #expect(await restarted.state == .synced(timestamp))
+        }
+    }
+    let oldTargetAttempts = await engine.physicalDeleteAttempts.filter { $0 == card.id.rawValue.uuidString }.count
+    #expect(oldTargetAttempts == (unknownSave ? 2 : 1))
+    try await repository.deleteAllData(resetGeneration: UUID(), now: instant.addingTimeInterval(100))
+    for attempt in 1...2 {
+        let timestamp = instant.addingTimeInterval(100 + Double(attempt) * 10)
+        let restarted = CloudSyncCoordinator(repository: repository, transport: CKSyncTransport(engine: engine), now: { timestamp },
+            sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
+        await restarted.sync(reason: .launch)
+        if attempt == 1 { #expect(try await repository.pendingOutboxCount() == 4) }
+        else { #expect(try await repository.pendingOutboxCount() == 0) }
+    }
+    #expect(await engine.physicalDeleteAttempts.filter { $0 == card.id.rawValue.uuidString }.count == oldTargetAttempts)
+    #expect(try await repository.cards(scope: .active).count == 1)
+}
+
+@Test(arguments: [false, true])
+func mixedAtomicRetryAfterSelectionIsOrderIndependent(reverse: Bool) throws {
+    let record = CKRecord(recordType: "PTCard")
+    var buffer = try EngineEventBuffer(checkpoint: nil)
+    buffer.beginSend()
+    let failures: [FailedRecordChange] = [
+        .save(record, CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: 1e300])),
+        .delete(record.recordID, CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: 1e301]))
+    ]
+    buffer.didSend(savedRecords: [], deletedRecordIDs: [], failures: reverse ? Array(failures.reversed()) : failures)
+    #expect(throws: CloudTransportError.retryAfter(1e301)) { try buffer.sendResult() }
+}
+
+@Test func absentPhysicalDeleteRestartsAsTombstoneOnlyUntilPublicationConfirmed() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let instant = Date(timeIntervalSince1970: 1_800_000_000)
+    let card = try await repository.createCard(title: "Delete", now: instant)
+    try await repository.deleteAllData(resetGeneration: UUID(), now: instant.addingTimeInterval(1))
+    let snapshot = try await repository.syncSnapshot()
+    let change = try #require(CloudRecordMapper.outbound(snapshot).first { if case .tombstone = $0.record.payload { return true }; return false })
+    let target = CKRecord.ID(recordName: card.id.rawValue.uuidString, zoneID: CloudRecordMapper.zoneID)
+    let tombstone = try recordWithServerTag(change.record)
+    var buffer = try EngineEventBuffer(checkpoint: nil)
+    buffer.beginSend()
+    buffer.didSend(savedRecords: [], deletedRecordIDs: [], failures: [.delete(target, CKError(.unknownItem)),
+        .save(tombstone, CKError(.batchRequestFailed))])
+    let recovery = try buffer.sendResult()
+    #expect(recovery.savedRecordIDs.isEmpty)
+    try await repository.acknowledgeSync([], token: recovery.checkpoint)
+    #expect(try await repository.pendingOutbox().contains { $0.id == change.id })
+    var resumed = try EngineEventBuffer(checkpoint: await repository.syncSnapshot().token)
+    let plan = try resumed.prepareSend([change.record])
+    #expect(plan.deletions.isEmpty)
+    #expect(plan.excludedDeletionIDs == [target])
+    #expect(plan.records.map(\.recordID) == [tombstone.recordID])
+    resumed.beginSend()
+    resumed.didSend(savedRecords: plan.records, deletedRecordIDs: [], failures: [])
+    let published = try resumed.sendResult()
+    #expect(published.savedRecordIDs == Set([CloudRecordMapper.identity(change.record).id]))
+    try await repository.acknowledgeSync(change.journal, token: published.checkpoint)
+    #expect(try await !repository.pendingOutbox().contains { $0.id == change.id })
+    // Repeat reset reuses the deletion fence; an already absent target must not
+    // re-enter the atomic unknownItem loop after another process restart.
+    try await repository.deleteAllData(resetGeneration: UUID(), now: instant.addingTimeInterval(2))
+    let repeated = try #require(CloudRecordMapper.outbound(await repository.syncSnapshot()).first {
+        if case .tombstone(let value) = $0.record.payload { return value.entityID == card.id.rawValue }; return false
+    })
+    var replay = try EngineEventBuffer(checkpoint: await repository.syncSnapshot().token)
+    let replayPlan = try replay.prepareSend([repeated.record])
+    #expect(replayPlan.deletions.isEmpty)
+    #expect(replayPlan.excludedDeletionIDs == [target])
+    replay.beginSend(); replay.didSend(savedRecords: replayPlan.records, deletedRecordIDs: [], failures: [])
+    #expect(try replay.sendResult().savedRecordIDs == Set([CloudRecordMapper.identity(repeated.record).id]))
+    try replay.receive([recordWithServerTag(ReplicatedRecord(payload: .card(card), generation: .initial))])
+    #expect(try replay.prepareSend([repeated.record]).deletions[tombstone.recordID] == target)
+}
+
+@Test(arguments: [false, true])
+func mixedAtomicRootFailureSelectionIsOrderIndependent(reverse: Bool) async throws {
+    let record = CKRecord(recordType: "PTCard", recordID: CKRecord.ID(recordName: UUID().uuidString, zoneID: CloudRecordMapper.zoneID))
+    var buffer = try EngineEventBuffer(checkpoint: nil)
+    buffer.beginSend()
+    let failures: [FailedRecordChange] = [.save(record, CKError(.quotaExceeded)),
+        .delete(record.recordID, CKError(.networkUnavailable))]
+    buffer.didSend(savedRecords: [], deletedRecordIDs: [], failures: reverse ? Array(failures.reversed()) : failures)
+    #expect(throws: CloudTransportError.quotaExceeded) { try buffer.sendResult() }
+}
+
+@Test(arguments: [false, true], [false, true])
+func mixedAtomicSaveDeleteFailurePreservesRootRecovery(unknownSave: Bool, reverse: Bool) async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let instant = Date(timeIntervalSince1970: 1_800_000_000)
+    let card = try await repository.createCard(title: "Deleted", now: instant)
+    let value = ReplicatedRecord(payload: .card(card), generation: .initial)
+    let cardRecord = try recordWithServerTag(value)
+    let tombstone = SyncTombstone(id: UUID(), entity: .card, entityID: card.id.rawValue, deletedAt: instant,
+        deviceID: "device", revision: 2)
+    let tombstoneValue = ReplicatedRecord(payload: .tombstone(tombstone), generation: .initial)
+    let tombstoneRecord = try recordWithServerTag(tombstoneValue)
+    var buffer = try EngineEventBuffer(checkpoint: nil)
+    try buffer.receive([cardRecord, tombstoneRecord]); buffer.beginSend()
+    let failures: [FailedRecordChange] = [
+        .save(tombstoneRecord, CKError(unknownSave ? .unknownItem : .batchRequestFailed)),
+        .delete(cardRecord.recordID, CKError(unknownSave ? .batchRequestFailed : .unknownItem))
+    ]
+    buffer.didSend(savedRecords: [], deletedRecordIDs: [], failures: reverse ? Array(failures.reversed()) : failures)
+    let result = try buffer.sendResult()
+    #expect(result.requiresRefetch)
+    #expect(result.savedRecordIDs.isEmpty)
+    let resumed = try EngineEventBuffer(checkpoint: result.checkpoint)
+    #expect(try resumed.prepare(unknownSave ? tombstoneValue : value).recordChangeTag == nil)
+    #expect(try resumed.prepare(unknownSave ? value : tombstoneValue).recordChangeTag == "server-tag-before-delete")
+}
+
 private actor AccountLookupGate {
     private var entered = false
     private var waiter: CheckedContinuation<Void, Never>?
@@ -80,7 +243,7 @@ private actor MissingItemEngineFixture: SyncEngineDriving {
         for value in records {
             let record = try buffer.prepare(value)
             preparedTags.append(record.recordChangeTag)
-            if firstSend { buffer.didFailToSave(record, error: CKError(.unknownItem)) }
+            if firstSend { buffer.didSend(savedRecords: [], deletedRecordIDs: [], failures: [.save(record, CKError(.unknownItem))]) }
             else { buffer.didSave([record]) }
         }
         firstSend = false
@@ -135,7 +298,7 @@ private actor MissingItemEngineFixture: SyncEngineDriving {
     let tagged = try recordWithServerTag(change.record)
     var buffer = try EngineEventBuffer(checkpoint: nil)
     try buffer.receive([tagged]); buffer.beginSend()
-    buffer.didFailToSave(tagged, error: CKError(.unknownItem))
+    buffer.didSend(savedRecords: [], deletedRecordIDs: [], failures: [.save(tagged, CKError(.unknownItem))])
     let result = try buffer.sendResult()
     #expect(result.requiresRefetch)
     #expect(result.savedRecordIDs.isEmpty)
@@ -157,8 +320,8 @@ private actor MissingItemEngineFixture: SyncEngineDriving {
     var buffer = try EngineEventBuffer(checkpoint: nil)
     let records = try changes.map { try recordWithServerTag($0.record) }
     try buffer.receive(records); buffer.beginSend()
-    buffer.didFailToSave(records[1], error: CKError(.batchRequestFailed))
-    buffer.didFailToSave(records[0], error: CKError(.unknownItem))
+    buffer.didSend(savedRecords: [], deletedRecordIDs: [], failures: [
+        .save(records[1], CKError(.batchRequestFailed)), .save(records[0], CKError(.unknownItem))])
     let result = try buffer.sendResult()
     #expect(result.requiresRefetch && result.savedRecordIDs.isEmpty)
     let resumed = try EngineEventBuffer(checkpoint: result.checkpoint)

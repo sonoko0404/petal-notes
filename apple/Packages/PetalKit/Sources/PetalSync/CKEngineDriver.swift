@@ -51,13 +51,10 @@ actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
         try check(operation)
         guard let engine, engineEpoch == operation else { throw CloudTransportError.unavailable }
         buffer.beginSend(); pending = [:]; deletions = [:]
-        for value in records {
-            let record = try buffer.prepare(value)
-            pending[record.recordID] = record
-            if case .tombstone(let tombstone) = value.payload {
-                deletions[record.recordID] = CKRecord.ID(recordName: tombstone.entityID.uuidString, zoneID: CloudRecordMapper.zoneID)
-            }
-        }
+        let plan = try buffer.prepareSend(records)
+        pending = Dictionary(uniqueKeysWithValues: plan.records.map { ($0.recordID, $0) })
+        deletions = plan.deletions
+        engine.state.remove(pendingRecordZoneChanges: plan.excludedDeletionIDs.map { .deleteRecord($0) })
         engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: CloudRecordMapper.zoneID))])
         engine.state.add(pendingRecordZoneChanges: pending.keys.map { .saveRecord($0) }
             + deletions.values.map { .deleteRecord($0) })
@@ -119,13 +116,9 @@ actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
                 // Physical deletes are accompanied by PTTombstone in the same
                 // atomic zone transaction; tombstones are the merge authority.
             case .sentRecordZoneChanges(let value):
-                buffer.didSave(value.savedRecords)
-                buffer.didDelete(value.deletedRecordIDs)
-                for failure in value.failedRecordSaves { buffer.didFailToSave(failure.record, error: failure.error) }
-                for (id, error) in value.failedRecordDeletes {
-                    if error.code == .unknownItem { buffer.didDelete([id]) }
-                    else { buffer.failure = CKSyncTransport.failure(error) }
-                }
+                buffer.didSend(savedRecords: value.savedRecords, deletedRecordIDs: value.deletedRecordIDs,
+                    failures: value.failedRecordSaves.map { .save($0.record, $0.error) }
+                        + value.failedRecordDeletes.map { .delete($0.key, $0.value) })
             case .didFetchRecordZoneChanges(let value):
                 if let error = value.error { buffer.failure = CKSyncTransport.failure(error) }
             case .sentDatabaseChanges(let value):
