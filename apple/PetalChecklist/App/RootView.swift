@@ -3,9 +3,11 @@ import SwiftUI
 import PetalCore
 
 struct RootView: View {
+    let capture: QuickCaptureAppController
     @State private var router: AppRouter?
     @State private var startupError: String?
     @State private var pendingInboxMove: PendingInboxMove?
+    @State private var recordingShortcut = false
 
     private struct PendingInboxMove {
         let cardID: CardID
@@ -51,9 +53,52 @@ struct RootView: View {
                         VStack(alignment: .leading) {
                             Text("Settings").font(.title)
                             Text("Local cards are available offline.")
+                            Picker("Quick Capture Shortcut", selection: Binding(
+                                get: { capture.hotKey.selection },
+                                set: { capture.hotKey.configure($0) }
+                            )) {
+                                ForEach(HotKeyChoice.allCases.contains(capture.hotKey.selection)
+                                        ? HotKeyChoice.allCases
+                                        : HotKeyChoice.allCases + [capture.hotKey.selection]) { choice in
+                                    Text(choice.title).tag(choice)
+                                }
+                            }
+                            .accessibilityIdentifier("settings.quickCaptureShortcut")
+                            .disabled(recordingShortcut)
+                            if recordingShortcut {
+                                Text("Press a shortcut with Command, Option, or Control")
+                                HotKeyRecorderView(onCapture: { choice in
+                                    capture.hotKey.configure(choice)
+                                    recordingShortcut = false
+                                }, onCancel: {
+                                    capture.hotKey.cancelRecording()
+                                    recordingShortcut = false
+                                })
+                                .frame(width: 250, height: 28)
+                                Button("Cancel Recording") {
+                                    capture.hotKey.cancelRecording()
+                                    recordingShortcut = false
+                                }
+                            } else {
+                                Button("Record Shortcut") {
+                                    capture.hotKey.beginRecording()
+                                    recordingShortcut = true
+                                }
+                                .accessibilityIdentifier("settings.recordShortcut")
+                            }
+                            if let error = capture.hotKey.errorMessage {
+                                Text(error).foregroundStyle(.red)
+                                    .accessibilityIdentifier("settings.hotKeyError")
+                            }
                         }
                         .padding()
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .onDisappear {
+                            if recordingShortcut {
+                                capture.hotKey.cancelRecording()
+                                recordingShortcut = false
+                            }
+                        }
                     } else if let editor = router.editor {
                         CardEditorView(model: editor,
                                        onArchive: { Task { await moveSelected(to: .archived) } },
@@ -97,10 +142,13 @@ struct RootView: View {
                 let navigation = AppRouter(repository: opened.repository, library: model)
                 router = navigation
                 if let inbox = model.cards.first { await navigation.select(inbox.id) }
+                capture.configure(repository: opened.repository)
+                capture.openFromLaunchArguments()
             } catch {
                 startupError = error.localizedDescription
             }
         }
+        .onOpenURL { capture.handle(url: $0) }
     }
 
     private func icon(_ scope: LibraryScope) -> String {
