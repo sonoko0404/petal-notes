@@ -54,3 +54,17 @@ import Testing
         calendar: calendar
     ) == expected)
 }
+
+@Test func dailyReminderFiresOnlyOnceOnRepeatedLocalDay() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+    let formatter = ISO8601DateFormatter()
+    let beforeFirst = formatter.date(from: "2026-11-01T08:29:00Z")!
+    let firstOccurrence = formatter.date(from: "2026-11-01T08:30:00Z")!
+    let afterFirst = formatter.date(from: "2026-11-01T08:31:00Z")!
+    let nextDay = formatter.date(from: "2026-11-02T09:30:00Z")!
+    let rule = ReminderRule.daily(localMinute: 90, timeZoneIdentifier: "America/Los_Angeles")
+
+    #expect(ReminderPolicy.nextFireDate(rule: rule, after: beforeFirst, calendar: calendar) == firstOccurrence)
+    #expect(ReminderPolicy.nextFireDate(rule: rule, after: afterFirst, calendar: calendar) == nextDay)
+}

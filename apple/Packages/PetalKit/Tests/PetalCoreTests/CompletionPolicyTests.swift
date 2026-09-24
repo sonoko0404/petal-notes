@@ -29,3 +29,16 @@ import Testing
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(CompletionPolicy.isVisibleInWidget(completedAt: nil, now: now, calendar: .current))
 }
+
+@Test func completedTodoHidesAtTheImmediateLocalMidnightBoundary() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+    let completed = calendar.date(from: DateComponents(year: 2026, month: 9, day: 23, hour: 12))!
+    let beforeMidnight = calendar.date(from: DateComponents(
+        year: 2026, month: 9, day: 23, hour: 23, minute: 59, second: 59
+    ))!
+    let midnight = calendar.date(from: DateComponents(year: 2026, month: 9, day: 24))!
+
+    #expect(CompletionPolicy.isVisibleInWidget(completedAt: completed, now: beforeMidnight, calendar: calendar))
+    #expect(!CompletionPolicy.isVisibleInWidget(completedAt: completed, now: midnight, calendar: calendar))
+}
