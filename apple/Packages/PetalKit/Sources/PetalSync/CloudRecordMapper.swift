@@ -28,7 +28,8 @@ public enum CloudRecordMapper {
                 case .conflict: return nil
                 }
             }
-            return OutboundCloudChange(record: ReplicatedRecord(payload: payload, generation: snapshot.generation), journal: ordered)
+            return OutboundCloudChange(record: ReplicatedRecord(payload: payload, generation: snapshot.generation,
+                replacementInboxID: snapshot.replacementExpectedInboxID), journal: ordered)
         }.sorted { $0.journal.last!.sequence < $1.journal.last!.sequence }
     }
 
@@ -60,6 +61,7 @@ public enum CloudRecordMapper {
         record["resetIsReplacement"] = (value.generation.isReplacement ? 1 : 0) as CKRecordValue
         record["isDeleted"] = { if case .tombstone = value.payload { 1 } else { 0 } }() as CKRecordValue
         record["redactionVersion"] = 1 as CKRecordValue
+        record["replacementInboxID"] = (value.replacementInboxID?.uuidString ?? "") as CKRecordValue
         return record
     }
 
@@ -79,9 +81,13 @@ public enum CloudRecordMapper {
             throw CloudTransportError.invalidRecord
         }
         do {
+            let expected = record["replacementInboxID"] as? String
+            if record["replacementInboxID"] != nil,
+               expected == nil || (expected != "" && UUID(uuidString: expected!) == nil) { throw CloudTransportError.invalidRecord }
             let value = ReplicatedRecord(payload: try JSONDecoder().decode(ReplicatedRecord.Payload.self, from: payload),
                 generation: ResetGeneration(id: id, modifiedAt: date, deviceID: device,
-                    isReplacement: record["resetIsReplacement"] as? Int64 == 1))
+                    isReplacement: record["resetIsReplacement"] as? Int64 == 1),
+                replacementInboxID: expected.flatMap(UUID.init(uuidString:)))
             var identity = identity(value)
             if case .tombstone(let tombstone) = value.payload, record.recordType == "PTTombstone" {
                 // Legacy fences remain mergeable; new fences live at the entity

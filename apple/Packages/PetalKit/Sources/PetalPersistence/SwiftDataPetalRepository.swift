@@ -246,7 +246,8 @@ private actor RepositoryStore {
             SyncSnapshot(enabled: try syncMetadata().enabled, changes: try pendingOutbox(), token: try syncMetadata().token,
                          tombstones: try syncMetadata().tombstones, generation: try syncMetadata().generation,
                          state: try syncMetadata().state, retryAt: try syncMetadata().retryAt,
-                         preferenceEpoch: try syncMetadata().preferenceEpoch ?? 0)
+                         preferenceEpoch: try syncMetadata().preferenceEpoch ?? 0,
+                         replacementExpectedInboxID: try syncMetadata().replacementExpectedInboxID)
         }
     }
 
@@ -311,8 +312,35 @@ private actor RepositoryStore {
                 }
                 return rank($0) < rank($1)
             }
+            if metadata.generation.isReplacement {
+                var declared = Set(records.compactMap(\.replacementInboxID))
+                if let expected = metadata.replacementExpectedInboxID { declared.insert(expected) }
+                for record in records {
+                    if case .userState(let state) = record.payload {
+                        guard state.resetGeneration == metadata.generation.id else { throw RepositoryError.replacementInboxRequired }
+                        declared.insert(state.inboxCardID.rawValue)
+                    }
+                }
+                guard declared.count <= 1, !declared.isEmpty || metadata.replacementPlaceholderID == nil else {
+                    throw RepositoryError.replacementInboxRequired
+                }
+                metadata.replacementExpectedInboxID = declared.first
+                if metadata.replacementPlaceholderID != nil, let expected = declared.first {
+                    for record in records {
+                        if case .tombstone(let tombstone) = record.payload, tombstone.entity == .card && tombstone.entityID == expected {
+                            throw RepositoryError.replacementInboxRequired
+                        }
+                        if case .card(let card) = record.payload, card.id.rawValue == expected {
+                            guard card.status == .active && card.isInbox && card.deletedAt == nil && card.archivedAt == nil else {
+                                throw RepositoryError.replacementInboxRequired
+                            }
+                        }
+                    }
+                }
+            }
             let restoredInbox = records.compactMap { record -> CardID? in
-                if case .card(let card) = record.payload, card.status == .active && card.isInbox { return card.id }
+                if case .card(let card) = record.payload, card.id.rawValue == metadata.replacementExpectedInboxID,
+                   card.status == .active && card.isInbox { return card.id }
                 return nil
             }.first
             let preferredInbox = metadata.replacementPlaceholderID != nil ? restoredInbox : nil
@@ -846,6 +874,7 @@ private actor RepositoryStore {
             metadata.unresolvedLines = nil
             metadata.resetCleanupPending = true
             metadata.replacementPlaceholderID = nil
+            metadata.replacementExpectedInboxID = nil
             if generation.isReplacement {
                 metadata.tombstones = []
                 try syncMetadataRow().payload = JSONEncoder().encode(metadata)
@@ -854,6 +883,8 @@ private actor RepositoryStore {
                     let active = cards.filter { $0.status == .active }
                     let inboxID = (active.first(where: \.isInbox) ?? active.min { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString })?.id
                         ?? CardID(rawValue: generation.id)
+                    metadata.replacementExpectedInboxID = inboxID.rawValue
+                    try syncMetadataRow().payload = JSONEncoder().encode(metadata)
                     if active.isEmpty {
                         cards.append(Card(id: inboxID, title: "Inbox", status: .active, themeID: .cream, isInbox: true,
                             createdAt: generation.modifiedAt, modifiedAt: generation.modifiedAt, archivedAt: nil,

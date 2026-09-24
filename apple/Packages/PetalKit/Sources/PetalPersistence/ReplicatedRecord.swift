@@ -30,7 +30,10 @@ public struct ReplicatedRecord: Codable, Sendable, Equatable {
     public enum Payload: Codable, Sendable, Equatable { case card(Card), line(CardLine), tombstone(SyncTombstone), userState(UserStateChange) }
     public let payload: Payload
     public let generation: ResetGeneration
-    public init(payload: Payload, generation: ResetGeneration) { self.payload = payload; self.generation = generation }
+    public let replacementInboxID: UUID?
+    public init(payload: Payload, generation: ResetGeneration, replacementInboxID: UUID? = nil) {
+        self.payload = payload; self.generation = generation; self.replacementInboxID = replacementInboxID
+    }
 }
 
 public struct SyncTombstone: Codable, Sendable, Equatable {

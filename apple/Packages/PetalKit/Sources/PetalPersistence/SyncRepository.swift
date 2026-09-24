@@ -34,10 +34,12 @@ public struct SyncSnapshot: Sendable {
     public let state: SyncState
     public let retryAt: Date?
     public let preferenceEpoch: UInt64
+    public var replacementExpectedInboxID: UUID? = nil
 }
 
 struct LocalSyncMetadata: Codable {
     var replacementPlaceholderID: UUID?
+    var replacementExpectedInboxID: UUID?
     var enabled = true
     var token: Data?
     var tombstones: [SyncTombstone] = []
