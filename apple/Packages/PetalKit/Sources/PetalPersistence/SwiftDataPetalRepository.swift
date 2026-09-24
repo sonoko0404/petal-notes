@@ -15,6 +15,9 @@ public struct SwiftDataPetalRepository: PetalRepository {
     public func createCard(title: String, now: Date) async throws -> Card {
         try await store.createCard(title: title, now: now)
     }
+    public func updateCardTitle(_ id: CardID, title: String, now: Date) async throws -> Card {
+        try await store.updateCardTitle(id, title: title, now: now)
+    }
     public func pendingOutboxCount() async throws -> Int { try await store.pendingOutboxCount() }
     public func pendingOutbox() async throws -> [OutboxChange] { try await store.pendingOutbox() }
     public func lines(cardID: CardID) async throws -> [CardLine] { try await store.lines(cardID: cardID) }
@@ -68,6 +71,10 @@ private actor RepositoryStore {
             do {
                 let result = try body()
                 if faultInjector == .failBeforeSave { throw RepositoryError.injectedFailure }
+                if faultInjector == .failOnceBeforeSave {
+                    faultInjector = .none
+                    throw RepositoryError.injectedFailure
+                }
                 try session.save()
                 return result
             } catch {
@@ -231,6 +238,18 @@ private actor RepositoryStore {
         updated.deviceID = try deviceID()
         stored.payload = try JSONEncoder().encode(updated)
         try appendChange(entity: .card, id: stored.id, payload: stored.payload, now: now)
+    }
+
+    func updateCardTitle(_ id: CardID, title: String, now: Date) throws -> Card {
+        try transaction {
+            let stored = try storedCard(id)
+            var value = try stored.value()
+            guard value.status != .trashed else { throw RepositoryError.cardUnavailable }
+            guard value.title != title else { return value }
+            value.title = title
+            try saveCard(value, stored: stored, now: now)
+            return try stored.value()
+        }
     }
 
     func moveCard(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) throws {

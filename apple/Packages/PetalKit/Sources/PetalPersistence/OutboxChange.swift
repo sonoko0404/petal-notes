@@ -32,4 +32,5 @@ public enum RepositoryError: Error, Equatable, Sendable {
 public enum RepositoryFaultInjector: Sendable {
     case none
     case failBeforeSave
+    case failOnceBeforeSave
 }

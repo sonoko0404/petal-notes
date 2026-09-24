@@ -19,6 +19,7 @@ public protocol PetalRepository: Sendable {
     func deleteAllData(resetGeneration: UUID, now: Date) async throws
     func resetGeneration() async throws -> UUID?
     func createCard(title: String, now: Date) async throws -> Card
+    func updateCardTitle(_ id: CardID, title: String, now: Date) async throws -> Card
     func pendingOutboxCount() async throws -> Int
     func pendingOutbox() async throws -> [OutboxChange]
 }
