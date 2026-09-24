@@ -6,37 +6,50 @@ import PetalPersistence
 /// does not contact CloudKit. Automatic networking is explicitly disabled.
 actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
     private let containerIdentifier: String
+    private let accountStatus: @Sendable () async throws -> CKAccountStatus
+    private let makeEngine: @Sendable (String, CKSyncEngine.State.Serialization?, any CKSyncEngineDelegate) throws -> CKSyncEngine
     private var engine: CKSyncEngine?
+    private var epoch: UInt64 = 0
+    private var engineEpoch: UInt64?
     private var buffer: EngineEventBuffer
     private var pending: [CKRecord.ID: CKRecord] = [:]
     private var deletions: [CKRecord.ID: CKRecord.ID] = [:]
 
-    init(containerIdentifier: String) {
+    init(containerIdentifier: String,
+         accountStatus: (@Sendable () async throws -> CKAccountStatus)? = nil,
+         makeEngine: (@Sendable (String, CKSyncEngine.State.Serialization?, any CKSyncEngineDelegate) throws -> CKSyncEngine)? = nil) {
         self.containerIdentifier = containerIdentifier
+        self.accountStatus = accountStatus ?? { try await CKContainer(identifier: containerIdentifier).accountStatus() }
+        self.makeEngine = makeEngine ?? Self.privateEngine
         buffer = try! EngineEventBuffer(checkpoint: nil)
     }
 
     func fetch(checkpoint: Data?) async throws -> CloudFetchResult {
-        await engine?.cancelOperations()
+        epoch &+= 1
+        let operation = epoch
+        let previous = engine; engine = nil; engineEpoch = nil
+        await previous?.cancelOperations()
+        try check(operation)
         // Always reconstruct from the committed checkpoint, including after a
         // repository rollback. A staged stateUpdate can never skip unapplied data.
         buffer = try EngineEventBuffer(checkpoint: checkpoint)
         let serialized = try buffer.engineState.map { try JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0) }
-        let container = CKContainer(identifier: containerIdentifier)
-        guard try await container.accountStatus() == .available else { throw CloudTransportError.authenticationRequired }
-        var configuration = CKSyncEngine.Configuration(database: container.privateCloudDatabase,
-            stateSerialization: serialized, delegate: self)
-        configuration.automaticallySync = false
-        configuration.subscriptionID = "petal.private.v1"
-        let engine = CKSyncEngine(configuration)
+        let status = try await accountStatus()
+        try check(operation)
+        guard status == .available else { throw CloudTransportError.authenticationRequired }
+        let engine = try makeEngine(containerIdentifier, serialized, self)
         self.engine = engine
+        engineEpoch = operation
         pending = [:]; deletions = [:]
         try await engine.fetchChanges()
+        try check(operation)
         return try buffer.fetchResult()
     }
 
     func send(_ records: [ReplicatedRecord]) async throws -> EngineSendResult {
-        guard let engine else { throw CloudTransportError.unavailable }
+        let operation = epoch
+        try check(operation)
+        guard let engine, engineEpoch == operation else { throw CloudTransportError.unavailable }
         buffer.beginSend(); pending = [:]; deletions = [:]
         for value in records {
             let record = try buffer.prepare(value)
@@ -48,14 +61,46 @@ actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
         engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: CloudRecordMapper.zoneID))])
         engine.state.add(pendingRecordZoneChanges: pending.keys.map { .saveRecord($0) }
             + deletions.values.map { .deleteRecord($0) })
-        try await engine.sendChanges()
+        do { try await engine.sendChanges() }
+        catch {
+            try check(operation)
+            // An atomic operation may also throw its aggregate error after
+            // delivering per-record events. Only the staged, fully accounted
+            // missing-record case can expose a recovery checkpoint.
+            if let cloud = error as? CKError, cloud.code == .partialFailure || cloud.code == .unknownItem {
+                let result = try buffer.sendResult()
+                if result.requiresRefetch { return result }
+            }
+            throw error
+        }
+        try check(operation)
         return try buffer.sendResult()
     }
 
-    func cancel() async { await engine?.cancelOperations(); engine = nil }
+    func cancel() async {
+        epoch &+= 1
+        let previous = engine; engine = nil; engineEpoch = nil
+        pending = [:]; deletions = [:]
+        await previous?.cancelOperations()
+    }
+
+    private func check(_ operation: UInt64) throws {
+        try Task.checkCancellation()
+        guard epoch == operation else { throw CancellationError() }
+    }
+
+    private static func privateEngine(_ identifier: String, _ serialization: CKSyncEngine.State.Serialization?,
+                                      _ delegate: any CKSyncEngineDelegate) -> CKSyncEngine {
+        let container = CKContainer(identifier: identifier)
+        var configuration = CKSyncEngine.Configuration(database: container.privateCloudDatabase,
+            stateSerialization: serialization, delegate: delegate)
+        configuration.automaticallySync = false
+        configuration.subscriptionID = "petal.private.v1"
+        return CKSyncEngine(configuration)
+    }
 
     func nextRecordZoneChangeBatch(_ context: CKSyncEngine.SendChangesContext, syncEngine: CKSyncEngine) async -> CKSyncEngine.RecordZoneChangeBatch? {
-        guard syncEngine === engine, !pending.isEmpty else { return nil }
+        guard syncEngine === engine, engineEpoch == epoch, !pending.isEmpty else { return nil }
         let records = Array(pending.values.sorted { $0.recordID.recordName < $1.recordID.recordName }.prefix(100))
         let removed = records.compactMap { deletions.removeValue(forKey: $0.recordID) }
         for record in records { pending.removeValue(forKey: record.recordID) }
@@ -64,18 +109,22 @@ actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
     }
 
     func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {
-        guard syncEngine === engine else { return }
+        guard syncEngine === engine, engineEpoch == epoch else { return }
         do {
             switch event {
             case .stateUpdate(let value): buffer.engineState = try JSONEncoder().encode(value.stateSerialization)
             case .fetchedRecordZoneChanges(let value):
                 try buffer.receive(value.modifications.map(\.record))
+                buffer.didDelete(value.deletions.map(\.recordID))
                 // Physical deletes are accompanied by PTTombstone in the same
                 // atomic zone transaction; tombstones are the merge authority.
             case .sentRecordZoneChanges(let value):
                 buffer.didSave(value.savedRecords)
-                if let failure = value.failedRecordSaves.first?.error ?? value.failedRecordDeletes.values.first {
-                    buffer.failure = CKSyncTransport.failure(failure)
+                buffer.didDelete(value.deletedRecordIDs)
+                for failure in value.failedRecordSaves { buffer.didFailToSave(failure.record, error: failure.error) }
+                for (id, error) in value.failedRecordDeletes {
+                    if error.code == .unknownItem { buffer.didDelete([id]) }
+                    else { buffer.failure = CKSyncTransport.failure(error) }
                 }
             case .didFetchRecordZoneChanges(let value):
                 if let error = value.error { buffer.failure = CKSyncTransport.failure(error) }

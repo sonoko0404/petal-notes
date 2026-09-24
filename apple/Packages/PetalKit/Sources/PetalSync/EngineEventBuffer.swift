@@ -15,6 +15,8 @@ struct EngineEventBuffer: Sendable {
     private(set) var inbound: [ReplicatedRecord] = []
     var failure: CloudTransportError?
     private var saved: Set<UUID> = []
+    private var requiresRefetch = false
+    private var batchWasAborted = false
     init(checkpoint: Data?) throws {
         guard let checkpoint else { return }
         do {
@@ -34,6 +36,9 @@ struct EngineEventBuffer: Sendable {
         record.encodeSystemFields(with: archive); archive.finishEncoding()
         systemFields[record.recordID.recordName] = archive.encodedData
     }
+    mutating func didDelete(_ ids: [CKRecord.ID]) {
+        for id in ids { systemFields.removeValue(forKey: id.recordName) }
+    }
     func prepare(_ value: ReplicatedRecord) throws -> CKRecord {
         let fresh = try CloudRecordMapper.encode(value)
         guard let data = systemFields[fresh.recordID.recordName] else { return fresh }
@@ -51,7 +56,14 @@ struct EngineEventBuffer: Sendable {
         if let failure { throw failure }
         return CloudFetchResult(records: inbound, token: try checkpoint())
     }
-    mutating func beginSend() { inbound = []; saved = []; failure = nil }
+    mutating func beginSend() { inbound = []; saved = []; failure = nil; requiresRefetch = false; batchWasAborted = false }
+    mutating func didFailToSave(_ record: CKRecord, error: CKError) {
+        if error.code == .unknownItem {
+            didDelete([record.recordID])
+            requiresRefetch = true
+        } else if error.code == .batchRequestFailed { batchWasAborted = true }
+        else { failure = CKSyncTransport.failure(error) }
+    }
     mutating func didSave(_ records: [CKRecord]) {
         for record in records {
             retainSystemFields(record)
@@ -61,6 +73,7 @@ struct EngineEventBuffer: Sendable {
     func sendResult() throws -> EngineSendResult {
         guard inbound.isEmpty else { throw CloudTransportError.conflict }
         if let failure { throw failure }
-        return EngineSendResult(savedRecordIDs: saved, checkpoint: try checkpoint())
+        if batchWasAborted && !requiresRefetch { throw CloudTransportError.conflict }
+        return EngineSendResult(savedRecordIDs: saved, checkpoint: try checkpoint(), requiresRefetch: requiresRefetch)
     }
 }

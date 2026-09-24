@@ -28,5 +28,8 @@ public struct CloudFetchResult: Sendable {
 public struct CloudSendResult: Sendable {
     public let acceptedIDs: Set<UUID>
     public let token: Data?
-    public init(acceptedIDs: Set<UUID>, token: Data? = nil) { self.acceptedIDs = acceptedIDs; self.token = token }
+    public let requiresRefetch: Bool
+    public init(acceptedIDs: Set<UUID>, token: Data? = nil, requiresRefetch: Bool = false) {
+        self.acceptedIDs = acceptedIDs; self.token = token; self.requiresRefetch = requiresRefetch
+    }
 }

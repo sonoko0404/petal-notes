@@ -6,6 +6,104 @@ import SwiftData
 
 private let syncNow = Date(timeIntervalSince1970: 1_800_000_000)
 
+@Test func allowedPostExpiryRestoreSupersedesUnsentPhysicalDeletionIntent() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    _ = try await repository.createCard(title: "Inbox", now: syncNow)
+    var card = try await repository.createCard(title: "Restored", now: syncNow)
+    var line = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .text, text: "Restored line"), now: syncNow)
+    try await repository.moveCard(card.id, to: .trashed, replacementInbox: nil, now: syncNow)
+    let deleted = syncNow.addingTimeInterval(2_592_000)
+    try await repository.purgeExpiredTrash(now: deleted)
+    #expect(try await repository.pendingOutbox().contains { $0.entityID == card.id.rawValue && $0.operation == .delete })
+    card.modifiedAt = deleted.addingTimeInterval(1); card.deviceID = "newer"
+    line.modifiedAt = deleted.addingTimeInterval(1); line.deviceID = "newer"
+    try await repository.applyInbound([ReplicatedRecord(payload: .card(card), generation: .initial),
+        ReplicatedRecord(payload: .line(line), generation: .initial)], token: Data([1]), now: deleted.addingTimeInterval(2_592_000))
+    #expect(try await repository.card(id: card.id)?.title == "Restored")
+    #expect(try await repository.lines(cardID: card.id) == [line])
+    #expect(try await repository.pendingOutbox().allSatisfy { $0.entityID != card.id.rawValue && $0.entityID != line.id.rawValue })
+}
+
+@Test func staleSyncEpochCannotCommitInboundAcknowledgementOrStatusAfterToggle() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let card = try await repository.createCard(title: "Keep", now: syncNow)
+    let snapshot = try await repository.syncSnapshot()
+    try await repository.setSyncEnabled(false)
+    try await repository.setSyncEnabled(true)
+    var remote = card; remote.title = "Obsolete"; remote.modifiedAt = syncNow.addingTimeInterval(1)
+    await #expect(throws: RepositoryError.syncSessionSuperseded) {
+        try await repository.applyInbound([ReplicatedRecord(payload: .card(remote), generation: .initial)], token: Data([9]), now: syncNow, expectedEpoch: snapshot.preferenceEpoch)
+    }
+    await #expect(throws: RepositoryError.syncSessionSuperseded) {
+        try await repository.acknowledgeSync(snapshot.changes, token: Data([9]), expectedEpoch: snapshot.preferenceEpoch)
+    }
+    await #expect(throws: RepositoryError.syncSessionSuperseded) {
+        try await repository.recordSyncState(.synced(syncNow), retryAt: nil, expectedEpoch: snapshot.preferenceEpoch)
+    }
+    #expect(try await repository.card(id: card.id)?.title == "Keep")
+    #expect(try await repository.pendingOutboxCount() == 1)
+    #expect(try await repository.syncSnapshot().token == nil)
+    #expect(try await repository.syncSnapshot().state == .offline)
+}
+
+@Test func unresolvedQueueCapacityRejectsWholeBatchWithoutAdvancingCheckpoint() async throws {
+    let source = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let card = try await source.createCard(title: "Missing parent", now: syncNow)
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    try await repository.applyInbound([], token: Data([1]), now: syncNow)
+    var records: [ReplicatedRecord] = []
+    for _ in 0..<5 {
+        let line = try await source.addLine(NewLineDraft(cardID: card.id, kind: .text, text: String(repeating: "x", count: 1_000_000)), now: syncNow)
+        records.append(ReplicatedRecord(payload: .line(line), generation: .initial))
+    }
+    await #expect(throws: (any Error).self) { try await repository.applyInbound(records, token: Data([2]), now: syncNow) }
+    #expect(try await repository.syncSnapshot().token == Data([1]))
+    try await repository.applyInbound([ReplicatedRecord(payload: .card(card), generation: .initial)], token: Data([3]), now: syncNow)
+    #expect(try await repository.lines(cardID: card.id).isEmpty)
+}
+
+@Test func resetCreatesDeletionIntentForUnresolvedChild() async throws {
+    let source = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let card = try await source.createCard(title: "Missing parent", now: syncNow)
+    let line = try await source.addLine(NewLineDraft(cardID: card.id, kind: .text, text: "Pending"), now: syncNow)
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    try await repository.applyInbound([ReplicatedRecord(payload: .line(line), generation: .initial)], token: Data([1]), now: syncNow)
+    try await repository.deleteAllData(resetGeneration: UUID(), now: syncNow.addingTimeInterval(1))
+    #expect(try await repository.pendingOutbox().contains { $0.entityID == line.id.rawValue && $0.operation == .delete })
+    try await repository.applyInbound([ReplicatedRecord(payload: .card(card), generation: .initial)], token: Data([2]), now: syncNow)
+    #expect(try await repository.lines(cardID: card.id).isEmpty)
+}
+
+@Test func unresolvedChildHonorsDeletionFenceBeforeParentArrivesAfterExpiry() async throws {
+    let source = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let card = try await source.createCard(title: "Parent", now: syncNow)
+    let line = try await source.addLine(NewLineDraft(cardID: card.id, kind: .text, text: "Pending"), now: syncNow)
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    try await repository.applyInbound([ReplicatedRecord(payload: .line(line), generation: .initial)], token: Data([1]), now: syncNow)
+    let fence = SyncTombstone(id: UUID(), entity: .line, entityID: line.id.rawValue, deletedAt: syncNow.addingTimeInterval(-1), deviceID: "other", revision: 1)
+    try await repository.applyInbound([ReplicatedRecord(payload: .tombstone(fence), generation: .initial)], token: Data([2]), now: syncNow)
+    try await repository.applyInbound([ReplicatedRecord(payload: .card(card), generation: .initial)], token: Data([3]), now: syncNow.addingTimeInterval(2_592_001))
+    #expect(try await repository.lines(cardID: card.id).isEmpty)
+}
+
+@Test func childOnlyCheckpointSurvivesRestartAndResolvesWhenParentArrives() async throws {
+    let source = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let card = try await source.createCard(title: "Parent", now: syncNow)
+    let line = try await source.addLine(NewLineDraft(cardID: card.id, kind: .text, text: "Must survive checkpoint"), now: syncNow)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    do {
+        let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeShared(appGroupID: "test", containerURL: { _ in root }))
+        try await repository.applyInbound([ReplicatedRecord(payload: .line(line), generation: .initial)], token: Data([1]), now: syncNow)
+        #expect(try await repository.syncSnapshot().token == Data([1]))
+        #expect(try await repository.lines(cardID: card.id).isEmpty)
+    }
+    let resumed = SwiftDataPetalRepository(container: try ModelContainerFactory.makeShared(appGroupID: "test", containerURL: { _ in root }))
+    #expect(try await resumed.syncSnapshot().token == Data([1]))
+    try await resumed.applyInbound([ReplicatedRecord(payload: .card(card), generation: .initial)], token: Data([2]), now: syncNow)
+    #expect(try await resumed.lines(cardID: card.id) == [line])
+}
+
 @Test func resettingAgainRetainsUnsentDeletionIntentForAlreadyRemovedRecords() async throws {
     let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     let old = try await repository.createCard(title: "Old", now: syncNow)

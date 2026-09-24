@@ -30,6 +30,8 @@ public enum RepositoryError: Error, Equatable, Sendable {
     case appGroupUnavailable
     case unsupportedSchema(Int)
     case unrecognizedStoreSchema
+    case unresolvedInboundCapacityExceeded
+    case syncSessionSuperseded
 }
 
 public enum RepositoryFaultInjector: Sendable {

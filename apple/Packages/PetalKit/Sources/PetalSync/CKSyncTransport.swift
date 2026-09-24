@@ -10,7 +10,10 @@ public protocol SyncEngineDriving: Sendable {
 public struct EngineSendResult: Sendable {
     public let savedRecordIDs: Set<UUID>
     public let checkpoint: Data?
-    public init(savedRecordIDs: Set<UUID>, checkpoint: Data?) { self.savedRecordIDs = savedRecordIDs; self.checkpoint = checkpoint }
+    public let requiresRefetch: Bool
+    public init(savedRecordIDs: Set<UUID>, checkpoint: Data?, requiresRefetch: Bool = false) {
+        self.savedRecordIDs = savedRecordIDs; self.checkpoint = checkpoint; self.requiresRefetch = requiresRefetch
+    }
 }
 
 public struct CKSyncTransport: CloudTransport {
@@ -25,7 +28,7 @@ public struct CKSyncTransport: CloudTransport {
             let result = try await engine.send(changes.map(\.record))
             return CloudSendResult(acceptedIDs: Set(changes.filter {
                 result.savedRecordIDs.contains(CloudRecordMapper.identity($0.record).id)
-            }.map(\.id)), token: result.checkpoint)
+            }.map(\.id)), token: result.checkpoint, requiresRefetch: result.requiresRefetch)
         } catch { throw Self.failure(error) }
     }
     public func cancel() async { await engine.cancel() }

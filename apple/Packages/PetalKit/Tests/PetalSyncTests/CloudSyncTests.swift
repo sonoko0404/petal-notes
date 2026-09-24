@@ -7,6 +7,54 @@ import PetalPersistence
 
 private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+@Test func anotherInstanceToggleDuringSendFencesOldAcknowledgement() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    _ = try await repository.createCard(title: "Keep pending", now: now)
+    let transport = FakeCloudTransport()
+    await transport.onNextSend {
+        try await repository.setSyncEnabled(false)
+        try await repository.setSyncEnabled(true)
+    }
+    let coordinator = CloudSyncCoordinator(repository: repository, transport: transport, now: { now })
+    await coordinator.sync(reason: .foreground)
+    #expect(try await repository.pendingOutboxCount() == 1)
+    #expect(try await repository.syncSnapshot().token == Data([42]))
+    #expect(await coordinator.state != .synced(now))
+}
+
+@Test func disabledSendCompletionCannotAcknowledgeOrPublishSynced() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    _ = try await repository.createCard(title: "Still pending", now: now)
+    let transport = FakeCloudTransport()
+    let coordinator = CloudSyncCoordinator(repository: repository, transport: transport)
+    await transport.onNextSend { try await coordinator.setEnabled(false) }
+    await coordinator.sync(reason: .foreground)
+    #expect(try await repository.pendingOutboxCount() == 1)
+    #expect(try await repository.syncSnapshot().token == Data([42]))
+    #expect(try await repository.syncSnapshot().state == .offline)
+    #expect(await coordinator.state == .offline)
+}
+
+@Test func disableReenableDuringFetchCannotApplyOldPass() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let card = try await repository.createCard(title: "Local", now: now)
+    var old = card; old.title = "Obsolete fetch"; old.modifiedAt = now.addingTimeInterval(1)
+    let transport = FakeCloudTransport(inbound: [ReplicatedRecord(payload: .card(old), generation: .initial)])
+    await transport.holdFirstFetch()
+    let coordinator = CloudSyncCoordinator(repository: repository, transport: transport)
+    let running = await coordinator.request(reason: .foreground)
+    await transport.waitForFetch()
+    try await coordinator.setEnabled(false)
+    let reenabling = Task { try await coordinator.setEnabled(true) }
+    // Synchronize on the persisted preference, not a wall-clock sleep.
+    while try !(await repository.syncSnapshot().enabled) { await Task.yield() }
+    await transport.replaceFutureInbound([])
+    await transport.releaseFetch()
+    await running.value; try await reenabling.value
+    #expect(try await repository.card(id: card.id)?.title == "Local")
+    #expect(await transport.calls == ["fetch", "fetch", "send"])
+}
+
 @Test func syncPassPurgesThirtyDayTrashWithDurableDeletionFence() async throws {
     let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     _ = try await repository.createCard(title: "Inbox", now: now)
@@ -115,15 +163,17 @@ private actor FakeCloudTransport: CloudTransport {
     func waitForFetch() async { if calls.isEmpty { await withCheckedContinuation { waiter = $0 } } }
     func releaseFetch() { held?.resume(); held = nil }
     func clearFailure() { failure = nil }
+    func replaceFutureInbound(_ values: [ReplicatedRecord]) { inbound = values }
     init(failure: CloudTransportError? = nil, inbound: [ReplicatedRecord] = []) {
         self.failure = failure; self.inbound = inbound
     }
     func fetchChanges(after token: Data?) async throws -> CloudFetchResult {
         calls.append("fetch")
+        let fetched = inbound
         waiter?.resume(); waiter = nil
         if holdFirst { holdFirst = false; await withCheckedContinuation { held = $0 } }
         if let failure { throw failure }
-        return CloudFetchResult(records: inbound, token: Data([42]))
+        return CloudFetchResult(records: fetched, token: Data([42]))
     }
     func send(_ changes: [OutboundCloudChange]) async throws -> CloudSendResult {
         calls.append("send"); sent = changes

@@ -57,16 +57,18 @@ public struct SwiftDataPetalRepository: PetalSyncRepository {
     }
     public func resetGeneration() async throws -> UUID? { try await store.resetGeneration() }
     public func syncSnapshot() async throws -> SyncSnapshot { try await store.syncSnapshot() }
-    public func acknowledgeSync(_ sent: [OutboxChange], token: Data? = nil) async throws { try await store.acknowledgeSync(sent, token: token) }
+    public func acknowledgeSync(_ sent: [OutboxChange], token: Data? = nil, expectedEpoch: UInt64? = nil) async throws {
+        try await store.acknowledgeSync(sent, token: token, expectedEpoch: expectedEpoch)
+    }
     public func setSyncEnabled(_ enabled: Bool) async throws { try await store.setSyncEnabled(enabled) }
-    public func applyInbound(_ records: [ReplicatedRecord], token: Data?, now: Date) async throws {
-        try await store.applyInbound(records, token: token, now: now)
+    public func applyInbound(_ records: [ReplicatedRecord], token: Data?, now: Date, expectedEpoch: UInt64? = nil) async throws {
+        try await store.applyInbound(records, token: token, now: now, expectedEpoch: expectedEpoch)
     }
     public func takeUnpresentedConflicts(now: Date) async throws -> [ConflictArtifact] {
         try await store.takeUnpresentedConflicts(now: now)
     }
-    public func recordSyncState(_ state: SyncState, retryAt: Date?) async throws {
-        try await store.recordSyncState(state, retryAt: retryAt)
+    public func recordSyncState(_ state: SyncState, retryAt: Date?, expectedEpoch: UInt64? = nil) async throws {
+        try await store.recordSyncState(state, retryAt: retryAt, expectedEpoch: expectedEpoch)
     }
     public func finishResetCleanup() async throws { try await store.finishResetCleanup() }
 }
@@ -173,12 +175,20 @@ private actor RepositoryStore {
         try coordinator.withLock {
             SyncSnapshot(enabled: try syncMetadata().enabled, changes: try pendingOutbox(), token: try syncMetadata().token,
                          tombstones: try syncMetadata().tombstones, generation: try syncMetadata().generation,
-                         state: try syncMetadata().state, retryAt: try syncMetadata().retryAt)
+                         state: try syncMetadata().state, retryAt: try syncMetadata().retryAt,
+                         preferenceEpoch: try syncMetadata().preferenceEpoch ?? 0)
         }
     }
 
-    func acknowledgeSync(_ sent: [OutboxChange], token: Data?) throws {
+    private func validateSyncEpoch(_ expected: UInt64?, _ metadata: LocalSyncMetadata) throws {
+        if let expected, !metadata.enabled || expected != (metadata.preferenceEpoch ?? 0) {
+            throw RepositoryError.syncSessionSuperseded
+        }
+    }
+
+    func acknowledgeSync(_ sent: [OutboxChange], token: Data?, expectedEpoch: UInt64? = nil) throws {
         try transaction(notify: false) {
+            try validateSyncEpoch(expectedEpoch, syncMetadata())
             let byID = Dictionary(uniqueKeysWithValues: sent.map { ($0.id, $0) })
             for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredOutboxChange>()) {
                 if let expected = byID[row.id], try row.value() == expected { context.delete(row) }
@@ -194,20 +204,24 @@ private actor RepositoryStore {
         try transaction(notify: false) {
             var metadata = try syncMetadata()
             metadata.enabled = enabled
+            if !enabled { metadata.state = .offline }
+            metadata.preferenceEpoch = (metadata.preferenceEpoch ?? 0) &+ 1
             try syncMetadataRow().payload = JSONEncoder().encode(metadata)
         }
     }
 
-    func applyInbound(_ records: [ReplicatedRecord], token: Data?, now: Date) throws {
+    func applyInbound(_ records: [ReplicatedRecord], token: Data?, now: Date, expectedEpoch: UInt64? = nil) throws {
         try transaction(notify: false) {
             var metadata = try syncMetadata()
-            if let latest = records.map(\.generation).max(), latest > metadata.generation {
+            try validateSyncEpoch(expectedEpoch, metadata)
+            let received = (metadata.unresolvedLines ?? []) + records
+            if let latest = received.map(\.generation).max(), latest > metadata.generation {
                 try resetContents(generation: latest, now: now)
                 metadata = try syncMetadata()
             }
             // A reset also cleans up stale records first discovered after the
             // local reset. The cleanup survives another offline failure.
-            for record in records where record.generation < metadata.generation {
+            for record in received where record.generation < metadata.generation {
                 let entity: SyncTombstone.Entity
                 let id: UUID
                 switch record.payload {
@@ -221,12 +235,13 @@ private actor RepositoryStore {
                     try appendChange(entity: entity == .card ? .card : .line, id: id, payload: Data(), now: now, operation: .delete)
                 }
             }
-            let records = records.filter { $0.generation == metadata.generation }.sorted {
+            let records = received.filter { $0.generation == metadata.generation }.sorted {
                 func rank(_ value: ReplicatedRecord) -> Int {
                     switch value.payload { case .userState: 0; case .tombstone: 1; case .card: 2; case .line: 3 }
                 }
                 return rank($0) < rank($1)
             }
+            var unresolved: [UUID: ReplicatedRecord] = [:]
             // Deletions are applied first, independent of server page ordering.
             for record in records {
                 guard case .tombstone(let incoming) = record.payload else { continue }
@@ -255,13 +270,22 @@ private actor RepositoryStore {
                             localDevice: local.deviceID, remoteDevice: card.deviceID,
                             userVisibleDifference: SyncConflictResolver.userVisibleDifference(local, card), now: now) else { continue }
                         row.payload = try JSONEncoder().encode(card)
-                    } else { context.insert(try PetalSchemaV1.StoredCard(card)) }
+                    } else {
+                        context.insert(try PetalSchemaV1.StoredCard(card))
+                        try discardSupersededDeletion(entity: .card, id: card.id.rawValue)
+                    }
                 case .line(let line):
-                    guard try cards(scope: .all).contains(where: { $0.id == line.cardID }) else { continue }
                     if metadata.tombstones.contains(where: {
                         ($0.entity == .line && $0.entityID == line.id.rawValue || $0.entity == .card && $0.entityID == line.cardID.rawValue)
                             && $0.prevents(modifiedAt: line.modifiedAt, deviceID: line.deviceID, now: now)
                     }) { continue }
+                    guard try cards(scope: .all).contains(where: { $0.id == line.cardID }) else {
+                        if let prior = unresolved[line.id.rawValue], case .line(let old) = prior.payload,
+                           !SyncConflictResolver.remoteWins(localDate: old.modifiedAt, localDevice: old.deviceID,
+                                remoteDate: line.modifiedAt, remoteDevice: line.deviceID) { continue }
+                        unresolved[line.id.rawValue] = record
+                        continue
+                    }
                     if let row = try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).first(where: { $0.id == line.id.rawValue }) {
                         let local = try row.value()
                         guard try mergeDecision(entity: .line, id: row.id, cardID: line.cardID, lineID: line.id,
@@ -269,9 +293,22 @@ private actor RepositoryStore {
                             localDevice: local.deviceID, remoteDevice: line.deviceID,
                             userVisibleDifference: SyncConflictResolver.userVisibleDifference(local, line), now: now) else { continue }
                         row.payload = try JSONEncoder().encode(line)
-                    } else { context.insert(try PetalSchemaV1.StoredLine(line)) }
+                    } else {
+                        context.insert(try PetalSchemaV1.StoredLine(line))
+                        try discardSupersededDeletion(entity: .line, id: line.id.rawValue)
+                    }
                 case .tombstone, .userState: break
                 }
+            }
+            metadata.unresolvedLines = unresolved.values.sorted {
+                guard case .line(let a) = $0.payload, case .line(let b) = $1.payload else { return false }
+                return a.id.rawValue.uuidString < b.id.rawValue.uuidString
+            }
+            // Never evict recoverable children to make room: reject the whole
+            // batch/checkpoint so the server can replay it after intervention.
+            guard unresolved.count <= 4_096,
+                  try JSONEncoder().encode(metadata.unresolvedLines).count <= 4_194_304 else {
+                throw RepositoryError.unresolvedInboundCapacityExceeded
             }
             metadata.token = token
             try syncMetadataRow().payload = JSONEncoder().encode(metadata)
@@ -289,6 +326,15 @@ private actor RepositoryStore {
             guard card.isInbox != isInbox else { continue }
             card.isInbox = isInbox
             try saveCard(card, stored: storedCard(card.id), now: now)
+        }
+    }
+
+    private func discardSupersededDeletion(entity: OutboxChange.Entity, id: UUID) throws {
+        // Called only after generation/tombstone checks accept an inbound
+        // restoration. Never upload an older physical delete over that winner.
+        for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredOutboxChange>()) {
+            let value = try row.value()
+            if value.entity == entity && value.entityID == id && value.operation == .delete { context.delete(row) }
         }
     }
 
@@ -342,9 +388,10 @@ private actor RepositoryStore {
         }
     }
 
-    func recordSyncState(_ state: SyncState, retryAt: Date?) throws {
+    func recordSyncState(_ state: SyncState, retryAt: Date?, expectedEpoch: UInt64? = nil) throws {
         try transaction(notify: false) {
             var metadata = try syncMetadata()
+            try validateSyncEpoch(expectedEpoch, metadata)
             if case .failed(.other) = state { metadata.state = .failed(.other("sync-unavailable")) }
             else { metadata.state = state }
             metadata.retryAt = retryAt
@@ -685,7 +732,10 @@ private actor RepositoryStore {
 
     private func resetContents(generation: ResetGeneration, now: Date) throws {
             let oldCards = try cards(scope: .all)
-            let oldLines = try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).map { try $0.value() }
+            let waitingLines = try (syncMetadata().unresolvedLines ?? []).compactMap { record -> CardLine? in
+                if case .line(let line) = record.payload { return line }; return nil
+            }
+            let oldLines = try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).map { try $0.value() } + waitingLines
             for value in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredCard>()) { context.delete(value) }
             for value in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()) { context.delete(value) }
             for value in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredConflictArtifact>()) { context.delete(value) }
@@ -701,6 +751,7 @@ private actor RepositoryStore {
             }
             var metadata = try syncMetadata()
             metadata.generation = generation
+            metadata.unresolvedLines = nil
             metadata.resetCleanupPending = true
             var tombstones = Dictionary(uniqueKeysWithValues: metadata.tombstones.map { ($0.entityID, $0) })
             for card in oldCards {

@@ -17,6 +17,7 @@ public actor CloudSyncCoordinator {
     private var stateObserver: @Sendable (SyncState) async -> Void = { _ in }
     private var pendingReason: SyncReason?
     private var running: Task<Void, Never>?
+    private var operationEpoch: UInt64 = 0
     public private(set) var lastCompletedReason: SyncReason?
     public private(set) var state: SyncState = .offline
     public init(repository: any PetalSyncRepository, transport: any CloudTransport, now: @escaping @Sendable () -> Date = { .now },
@@ -28,12 +29,16 @@ public actor CloudSyncCoordinator {
         self.afterInbound = afterInbound; self.afterReset = afterReset
     }
     public func setEnabled(_ enabled: Bool) async throws {
+        operationEpoch &+= 1
+        let operation = operationEpoch
         try await repository.setSyncEnabled(enabled)
+        guard operation == operationEpoch else { return }
         if !enabled {
+            pendingReason = nil
             retryTask?.cancel(); retryTask = nil; deferredReason = nil; await transport.cancel()
+            guard operation == operationEpoch else { return }
             state = .offline
-            let deadline = try await repository.syncSnapshot().retryAt
-            try await repository.recordSyncState(state, retryAt: deadline); await stateObserver(state)
+            await stateObserver(state)
         }
         if enabled { await sync(reason: .enabled) }
     }
@@ -62,71 +67,109 @@ public actor CloudSyncCoordinator {
         running = nil
     }
     private func performSync() async {
+        let operation = operationEpoch
+        var preferenceEpoch: UInt64?
         do {
             try await repository.finishResetCleanup()
+            try check(operation)
             try await repository.purgeExpiredConflicts(now: now())
+            try check(operation)
             try await repository.purgeExpiredTrash(now: now())
+            try check(operation)
             let snapshot = try await repository.syncSnapshot()
+            try check(operation)
             guard snapshot.enabled else { return }
+            preferenceEpoch = snapshot.preferenceEpoch
             if let deadline = snapshot.retryAt, deadline > now() {
-                scheduleRetry(after: deadline.timeIntervalSince(now())); return
+                scheduleRetry(after: deadline.timeIntervalSince(now()), preferenceEpoch: snapshot.preferenceEpoch); return
             }
-            state = .syncing
-            try await repository.recordSyncState(state, retryAt: nil)
-            await stateObserver(state)
+            try await publish(.syncing, retryAt: nil, operation: operation, preferenceEpoch: preferenceEpoch)
+            try check(operation)
             let inbound = try await transport.fetchChanges(after: snapshot.token)
+            try check(operation)
             guard try await repository.syncSnapshot().enabled else { return }
-            try await repository.applyInbound(inbound.records, token: inbound.token, now: now())
+            try check(operation)
+            try await repository.applyInbound(inbound.records, token: inbound.token, now: now(), expectedEpoch: preferenceEpoch)
+            try check(operation)
             let merged = try await repository.syncSnapshot()
+            try check(operation)
             if merged.generation > snapshot.generation {
                 try await afterReset()
+                try check(operation)
                 try await repository.finishResetCleanup()
             }
             else { try await afterInbound() }
+            try check(operation)
             let current = try await repository.syncSnapshot()
-            guard current.enabled else { return }
+            try check(operation)
+            guard current.enabled, current.preferenceEpoch == preferenceEpoch else { return }
             let changes = try CloudRecordMapper.outbound(current)
             if !changes.isEmpty {
                 let result = try await transport.send(changes)
-                try await repository.acknowledgeSync(changes.filter { result.acceptedIDs.contains($0.id) }.flatMap(\.journal), token: result.token)
+                try check(operation)
+                try await repository.acknowledgeSync(changes.filter { result.acceptedIDs.contains($0.id) }.flatMap(\.journal), token: result.token, expectedEpoch: preferenceEpoch)
+                try check(operation)
+                if result.requiresRefetch { throw CloudTransportError.conflict }
                 guard changes.allSatisfy({ result.acceptedIDs.contains($0.id) }) else { throw CloudTransportError.unavailable }
             }
-            if try !CloudRecordMapper.outbound(await repository.syncSnapshot()).isEmpty {
+            let remaining = try await repository.syncSnapshot()
+            try check(operation)
+            if try !CloudRecordMapper.outbound(remaining).isEmpty {
                 pendingReason = pendingReason ?? .localMutation
                 return
             }
-            state = .synced(now())
             failures = 0
-            try await repository.recordSyncState(state, retryAt: nil)
-            await stateObserver(state)
+            try await publish(.synced(now()), retryAt: nil, operation: operation, preferenceEpoch: preferenceEpoch)
         } catch {
+            guard operation == operationEpoch else { return }
+            if error as? RepositoryError == .syncSessionSuperseded { return }
             if (try? await repository.syncSnapshot().enabled) == false { return }
+            guard operation == operationEpoch else { return }
             let typed = error as? CloudTransportError
+            let nextState: SyncState
             switch typed {
-            case .networkUnavailable: state = .offline
-            case .authenticationRequired, .accountUnavailable: state = .failed(.authenticationRequired)
-            case .quotaExceeded: state = .failed(.quotaExceeded)
-            default: state = .failed(.other("sync-unavailable"))
+            case .networkUnavailable: nextState = .offline
+            case .authenticationRequired, .accountUnavailable: nextState = .failed(.authenticationRequired)
+            case .quotaExceeded: nextState = .failed(.quotaExceeded)
+            default: nextState = .failed(.other("sync-unavailable"))
             }
             failures = min(failures + 1, 8)
             var delay = min(pow(2, Double(failures)), 300)
             if case .retryAfter(let requested) = typed, requested.isFinite { delay = max(delay, requested) }
             let retryable = typed == .networkUnavailable || { if case .retryAfter = typed { return true }; return false }() || typed == .conflict
-            try? await repository.recordSyncState(state, retryAt: retryable ? now().addingTimeInterval(delay) : nil)
-            await stateObserver(state)
-            if retryable { scheduleRetry(after: delay) }
+            do {
+                try await publish(nextState, retryAt: retryable ? now().addingTimeInterval(delay) : nil,
+                    operation: operation, preferenceEpoch: preferenceEpoch)
+            } catch { return }
+            guard operation == operationEpoch else { return }
+            if retryable { scheduleRetry(after: delay, preferenceEpoch: preferenceEpoch) }
         }
     }
-    private func scheduleRetry(after delay: TimeInterval) {
+    private func publish(_ value: SyncState, retryAt: Date?, operation: UInt64, preferenceEpoch: UInt64?) async throws {
+        try check(operation)
+        try await repository.recordSyncState(value, retryAt: retryAt, expectedEpoch: preferenceEpoch)
+        try check(operation)
+        state = value
+        await stateObserver(value)
+    }
+    private func check(_ operation: UInt64) throws {
+        try Task.checkCancellation()
+        guard operation == operationEpoch else { throw CancellationError() }
+    }
+    private func scheduleRetry(after delay: TimeInterval, preferenceEpoch: UInt64?) {
         guard retryTask == nil else { return }
         let sleep = self.sleep
+        let operation = operationEpoch
         retryTask = Task { [weak self] in
-            do { try await sleep(delay); try Task.checkCancellation(); await self?.resumeRetry() } catch {}
+            do { try await sleep(delay); try Task.checkCancellation(); await self?.resumeRetry(operation: operation, preferenceEpoch: preferenceEpoch) } catch {}
         }
     }
-    private func resumeRetry() async {
+    private func resumeRetry(operation: UInt64, preferenceEpoch: UInt64?) async {
+        guard operation == operationEpoch else { return }
         retryTask = nil
-        try? await repository.recordSyncState(state, retryAt: nil)
+        do { try await repository.recordSyncState(state, retryAt: nil, expectedEpoch: preferenceEpoch) }
+        catch { return }
+        guard operation == operationEpoch else { return }
         let reason = deferredReason ?? .retry; deferredReason = nil
         await sync(reason: reason)
     }
