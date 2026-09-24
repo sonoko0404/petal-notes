@@ -26,7 +26,7 @@ struct EngineEventBuffer: Sendable {
     private var systemFields: [String: Data] = [:]
     private var absentRecordNames: Set<String> = []
     private(set) var inbound: [ReplicatedRecord] = []
-    var failure: CloudTransportError?
+    private var failures = CloudFailureSummary()
     private var saved: Set<UUID> = []
     private var requiresRefetch = false
     private var batchWasAborted = false
@@ -86,10 +86,10 @@ struct EngineEventBuffer: Sendable {
             absentRecordNames: absentRecordNames.sorted()))
     }
     func fetchResult() throws -> CloudFetchResult {
-        if let failure { throw failure }
+        if let error = failures.error { throw error }
         return CloudFetchResult(records: inbound, token: try checkpoint())
     }
-    mutating func beginSend() { inbound = []; saved = []; failure = nil; requiresRefetch = false; batchWasAborted = false }
+    mutating func beginSend() { inbound = []; saved = []; failures = CloudFailureSummary(); requiresRefetch = false; batchWasAborted = false }
     mutating func didSend(savedRecords: [CKRecord], deletedRecordIDs: [CKRecord.ID], failures: [FailedRecordChange]) {
         // Reduce the complete event before selecting a result. Secondary atomic
         // aborts can never overwrite a sibling's recoverable root cause.
@@ -102,23 +102,24 @@ struct EngineEventBuffer: Sendable {
         let missing = failed.filter { $0.1.code == .unknownItem }.map(\.0)
         requiresRefetch = requiresRefetch || !missing.isEmpty
         batchWasAborted = batchWasAborted || failed.contains { $0.1.code == .batchRequestFailed }
-        let substantive = failed.filter { $0.1.code != .unknownItem && $0.1.code != .batchRequestFailed }
-            .map { CKSyncTransport.failure($0.1) } + [failure].compactMap { $0 }
-        failure = substantive.max { Self.failurePriority($0) < Self.failurePriority($1) }
+        for (_, error) in failed {
+            recordRetryConstraint(error)
+            if error.code != .unknownItem && error.code != .batchRequestFailed { recordFailure(error) }
+        }
         didSave(savedRecords)
         didDelete(deletedRecordIDs + missing)
     }
-    private static func failurePriority(_ error: CloudTransportError) -> (Int, TimeInterval) {
-        switch error {
-        case .authenticationRequired: (9, 0)
-        case .accountUnavailable: (8, 0)
-        case .quotaExceeded: (7, 0)
-        case .networkUnavailable: (6, 0)
-        case .invalidRecord: (5, 0)
-        case .unavailable: (4, 0)
-        case .conflict: (3, 0)
-        case .retryAfter(let delay): (2, delay)
-        }
+    mutating func recordFailure(_ error: any Error) {
+        let summary = CKSyncTransport.summary(error)
+        failures.include(summary.reason, retryAfter: summary.maxRetryAfter)
+    }
+    mutating func recordRetryConstraint(_ error: any Error) {
+        failures.include(nil, retryAfter: CKSyncTransport.summary(error).maxRetryAfter)
+    }
+    private func safeFailure(_ reason: CloudTransportError) -> any Error {
+        var combined = failures
+        combined.include(reason)
+        return combined.error ?? reason
     }
     mutating func didSave(_ records: [CKRecord]) {
         for record in records {
@@ -128,9 +129,10 @@ struct EngineEventBuffer: Sendable {
         }
     }
     func sendResult() throws -> EngineSendResult {
-        guard inbound.isEmpty else { throw CloudTransportError.conflict }
-        if let failure { throw failure }
-        if batchWasAborted && !requiresRefetch { throw CloudTransportError.conflict }
-        return EngineSendResult(savedRecordIDs: saved, checkpoint: try checkpoint(), requiresRefetch: requiresRefetch)
+        guard inbound.isEmpty else { throw safeFailure(.conflict) }
+        if let error = failures.error { throw error }
+        if batchWasAborted && !requiresRefetch { throw safeFailure(.conflict) }
+        return EngineSendResult(savedRecordIDs: saved, checkpoint: try checkpoint(), requiresRefetch: requiresRefetch,
+            maxRetryAfter: failures.maxRetryAfter)
     }
 }

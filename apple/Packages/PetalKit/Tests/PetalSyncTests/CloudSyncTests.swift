@@ -123,6 +123,51 @@ private actor SleepProbe {
     func waitUntilScheduled() async { if delays.isEmpty { await withCheckedContinuation { waiting = $0 } } }
 }
 
+private final class RetryClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Date
+    init(_ value: Date) { self.value = value }
+    func read() -> Date { lock.withLock { value } }
+    func set(_ value: Date) { lock.withLock { self.value = value } }
+}
+
+private actor EarlyWakeProbe {
+    private(set) var delays: [TimeInterval] = []
+    private var held: CheckedContinuation<Void, Never>?
+    private var waiter: CheckedContinuation<Void, Never>?
+    func sleep(_ delay: TimeInterval) async throws {
+        delays.append(delay); waiter?.resume(); waiter = nil
+        if delays.count == 1 { await withCheckedContinuation { held = $0 } }
+        else { try await Task.sleep(for: .seconds(3600)) }
+    }
+    func waitForFirstSchedule() async { if delays.isEmpty { await withCheckedContinuation { waiter = $0 } } }
+    func wake() { held?.resume(); held = nil }
+}
+
+@Test func retryWakeRechecksPersistedDeadlineBeforeTransport() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let transport = FakeCloudTransport(failure: .retryAfter(120))
+    let clock = RetryClock(now)
+    let probe = EarlyWakeProbe()
+    let coordinator = CloudSyncCoordinator(repository: repository, transport: transport, now: { clock.read() },
+        sleep: { try await probe.sleep($0) })
+    await coordinator.sync(reason: .launch)
+    await probe.waitForFirstSchedule()
+    clock.set(now.addingTimeInterval(119))
+    await transport.clearFailure()
+    await probe.wake()
+    // Wait for either outcome, not a timer: the broken path makes a second fetch;
+    // the correct path schedules the remaining second without contacting CloudKit.
+    while await probe.delays.count < 2 {
+        if await transport.calls.count >= 2 { break }
+        await Task.yield()
+    }
+    #expect(await transport.calls == ["fetch"])
+    #expect(await probe.delays == [120, 1])
+    #expect(try await repository.syncSnapshot().retryAt == now.addingTimeInterval(120))
+    try await coordinator.setEnabled(false)
+}
+
 @Test func retryAfterDefersTransportWithoutBlockingEditsAndPersistsSafeState() async throws {
     let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     let card = try await repository.createCard(title: "Initial", now: now)
@@ -143,6 +188,18 @@ private actor SleepProbe {
     #expect(await transport.calls == ["fetch"])
     try await coordinator.setEnabled(false)
     #expect(try await repository.card(id: card.id)?.title == "Still editable")
+}
+
+@Test func localBackoffIsNotShortenedBySmallServerRetryHint() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let probe = SleepProbe()
+    let coordinator = CloudSyncCoordinator(repository: repository, transport: FakeCloudTransport(failure: .retryAfter(1)),
+        now: { now }, sleep: { try await probe.sleep($0) })
+    await coordinator.sync(reason: .launch)
+    await probe.waitUntilScheduled()
+    #expect(await probe.delays == [2])
+    #expect(try await repository.syncSnapshot().retryAt == now.addingTimeInterval(2))
+    try await coordinator.setEnabled(false)
 }
 
 private actor FakeCloudTransport: CloudTransport {

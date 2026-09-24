@@ -81,7 +81,7 @@ public actor CloudSyncCoordinator {
             guard snapshot.enabled else { return }
             preferenceEpoch = snapshot.preferenceEpoch
             if let deadline = snapshot.retryAt, deadline > now() {
-                scheduleRetry(after: deadline.timeIntervalSince(now()), preferenceEpoch: snapshot.preferenceEpoch); return
+                scheduleRetry(after: deadline.timeIntervalSince(now())); return
             }
             try await publish(.syncing, retryAt: nil, operation: operation, preferenceEpoch: preferenceEpoch)
             try check(operation)
@@ -109,6 +109,9 @@ public actor CloudSyncCoordinator {
                 try check(operation)
                 try await repository.acknowledgeSync(changes.filter { result.acceptedIDs.contains($0.id) }.flatMap(\.journal), token: result.token, expectedEpoch: preferenceEpoch)
                 try check(operation)
+                if let requested = result.maxRetryAfter {
+                    throw CloudTransportFailure(reason: result.requiresRefetch ? .conflict : .retryAfter(requested), maxRetryAfter: requested)
+                }
                 if result.requiresRefetch { throw CloudTransportError.conflict }
                 guard changes.allSatisfy({ result.acceptedIDs.contains($0.id) }) else { throw CloudTransportError.unavailable }
             }
@@ -125,7 +128,8 @@ public actor CloudSyncCoordinator {
             if error as? RepositoryError == .syncSessionSuperseded { return }
             if (try? await repository.syncSnapshot().enabled) == false { return }
             guard operation == operationEpoch else { return }
-            let typed = error as? CloudTransportError
+            let constrained = error as? CloudTransportFailure
+            let typed = constrained?.reason ?? error as? CloudTransportError
             let nextState: SyncState
             switch typed {
             case .networkUnavailable: nextState = .offline
@@ -136,13 +140,14 @@ public actor CloudSyncCoordinator {
             failures = min(failures + 1, 8)
             var delay = min(pow(2, Double(failures)), 300)
             if case .retryAfter(let requested) = typed, requested.isFinite { delay = max(delay, requested) }
-            let retryable = typed == .networkUnavailable || { if case .retryAfter = typed { return true }; return false }() || typed == .conflict
+            if let requested = constrained?.maxRetryAfter { delay = max(delay, requested) }
+            let retryable = constrained != nil || typed == .networkUnavailable || { if case .retryAfter = typed { return true }; return false }() || typed == .conflict
             do {
                 try await publish(nextState, retryAt: retryable ? now().addingTimeInterval(delay) : nil,
                     operation: operation, preferenceEpoch: preferenceEpoch)
             } catch { return }
             guard operation == operationEpoch else { return }
-            if retryable { scheduleRetry(after: delay, preferenceEpoch: preferenceEpoch) }
+            if retryable { scheduleRetry(after: delay) }
         }
     }
     private func publish(_ value: SyncState, retryAt: Date?, operation: UInt64, preferenceEpoch: UInt64?) async throws {
@@ -156,20 +161,19 @@ public actor CloudSyncCoordinator {
         try Task.checkCancellation()
         guard operation == operationEpoch else { throw CancellationError() }
     }
-    private func scheduleRetry(after delay: TimeInterval, preferenceEpoch: UInt64?) {
+    private func scheduleRetry(after delay: TimeInterval) {
         guard retryTask == nil else { return }
         let sleep = self.sleep
         let operation = operationEpoch
         retryTask = Task { [weak self] in
-            do { try await sleep(delay); try Task.checkCancellation(); await self?.resumeRetry(operation: operation, preferenceEpoch: preferenceEpoch) } catch {}
+            do { try await sleep(delay); try Task.checkCancellation(); await self?.resumeRetry(operation: operation) } catch {}
         }
     }
-    private func resumeRetry(operation: UInt64, preferenceEpoch: UInt64?) async {
+    private func resumeRetry(operation: UInt64) async {
         guard operation == operationEpoch else { return }
         retryTask = nil
-        do { try await repository.recordSyncState(state, retryAt: nil, expectedEpoch: preferenceEpoch) }
-        catch { return }
-        guard operation == operationEpoch else { return }
+        // Do not clear the durable deadline on timer wake. Wall-clock movement
+        // or an early wake must pass performSync's deadline gate again.
         let reason = deferredReason ?? .retry; deferredReason = nil
         await sync(reason: reason)
     }

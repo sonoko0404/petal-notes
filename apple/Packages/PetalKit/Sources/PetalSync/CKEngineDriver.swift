@@ -41,7 +41,11 @@ actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
         self.engine = engine
         engineEpoch = operation
         pending = [:]; deletions = [:]
-        try await engine.fetchChanges()
+        do { try await engine.fetchChanges() }
+        catch {
+            try check(operation)
+            buffer.recordFailure(error)
+        }
         try check(operation)
         return try buffer.fetchResult()
     }
@@ -64,11 +68,13 @@ actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
             // An atomic operation may also throw its aggregate error after
             // delivering per-record events. Only the staged, fully accounted
             // missing-record case can expose a recovery checkpoint.
+            buffer.recordRetryConstraint(error)
             if let cloud = error as? CKError, cloud.code == .partialFailure || cloud.code == .unknownItem {
                 let result = try buffer.sendResult()
                 if result.requiresRefetch { return result }
             }
-            throw error
+            buffer.recordFailure(error)
+            return try buffer.sendResult()
         }
         try check(operation)
         return try buffer.sendResult()
@@ -120,20 +126,19 @@ actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
                     failures: value.failedRecordSaves.map { .save($0.record, $0.error) }
                         + value.failedRecordDeletes.map { .delete($0.key, $0.value) })
             case .didFetchRecordZoneChanges(let value):
-                if let error = value.error { buffer.failure = CKSyncTransport.failure(error) }
+                if let error = value.error { buffer.recordFailure(error) }
             case .sentDatabaseChanges(let value):
-                if let error = value.failedZoneSaves.first?.error ?? value.failedZoneDeletes.values.first {
-                    buffer.failure = CKSyncTransport.failure(error)
-                }
+                for failed in value.failedZoneSaves { buffer.recordFailure(failed.error) }
+                for error in value.failedZoneDeletes.values { buffer.recordFailure(error) }
             case .accountChange(let value):
                 switch value.changeType {
                 case .signIn: break
-                case .signOut, .switchAccounts: buffer.failure = .authenticationRequired
-                @unknown default: buffer.failure = .accountUnavailable
+                case .signOut, .switchAccounts: buffer.recordFailure(CloudTransportError.authenticationRequired)
+                @unknown default: buffer.recordFailure(CloudTransportError.accountUnavailable)
                 }
             default: break
             }
-        } catch { buffer.failure = .invalidRecord }
+        } catch { buffer.recordFailure(CloudTransportError.invalidRecord) }
     }
 }
 

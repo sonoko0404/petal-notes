@@ -5,6 +5,158 @@ import PetalCore
 import PetalPersistence
 @testable import PetalSync
 
+private actor MixedRetryEngineFixture: SyncEngineDriving {
+    let reverse: Bool
+    let successive: Bool
+    let network: Bool
+    private(set) var calls: [String] = []
+    private var shouldFail = true
+    init(reverse: Bool, successive: Bool, network: Bool) {
+        self.reverse = reverse; self.successive = successive; self.network = network
+    }
+    func fetch(checkpoint: Data?) async throws -> CloudFetchResult {
+        calls.append("fetch")
+        return CloudFetchResult(records: [], token: checkpoint)
+    }
+    func send(_ records: [ReplicatedRecord]) async throws -> EngineSendResult {
+        calls.append("send")
+        var buffer = try EngineEventBuffer(checkpoint: nil)
+        buffer.beginSend()
+        let native = try records.map(CloudRecordMapper.encode)
+        if shouldFail {
+            shouldFail = false
+            let record = try #require(native.first)
+            var failures: [FailedRecordChange] = [
+                .save(record, CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: 120])),
+                .delete(record.recordID, CKError(network ? .networkUnavailable : .serverRecordChanged))
+            ]
+            if reverse { failures.reverse() }
+            for event in successive ? failures.map({ [$0] }) : [failures] {
+                buffer.didSend(savedRecords: [], deletedRecordIDs: [], failures: event)
+            }
+        } else { buffer.didSend(savedRecords: native, deletedRecordIDs: [], failures: []) }
+        return try buffer.sendResult()
+    }
+    func cancel() async {}
+}
+
+private actor RetryDelayProbe {
+    private(set) var delays: [TimeInterval] = []
+    private var waiter: CheckedContinuation<Void, Never>?
+    func sleep(_ delay: TimeInterval) async throws {
+        delays.append(delay); waiter?.resume(); waiter = nil
+        try await Task.sleep(for: .seconds(3600))
+    }
+    func waitForSchedule() async { if delays.isEmpty { await withCheckedContinuation { waiter = $0 } } }
+}
+
+@Test(arguments: 0..<8)
+func mixedRetryDeadlinesSurviveOrderingEventsRestartAndToggle(_ scenario: Int) async throws {
+    let reverse = scenario & 1 != 0, successive = scenario & 2 != 0, network = scenario & 4 != 0
+    let instant = Date(timeIntervalSince1970: 1_800_000_000)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeShared(appGroupID: "fixture", containerURL: { _ in root }))
+    _ = try await repository.createCard(title: "Pending", now: instant)
+    let engine = MixedRetryEngineFixture(reverse: reverse, successive: successive, network: network)
+    let probe = RetryDelayProbe()
+    let coordinator = CloudSyncCoordinator(repository: repository, transport: CKSyncTransport(engine: engine), now: { instant },
+        sleep: { try await probe.sleep($0) })
+    await coordinator.sync(reason: .launch)
+    await probe.waitForSchedule()
+    #expect(await probe.delays == [120])
+    #expect(try await repository.syncSnapshot().retryAt == instant.addingTimeInterval(120))
+    #expect(await coordinator.state == (network ? .offline : .failed(.other("sync-unavailable"))))
+    try await coordinator.setEnabled(false)
+    try await coordinator.setEnabled(true)
+    await coordinator.sync(reason: .localMutation)
+    #expect(await engine.calls == ["fetch", "send"])
+    try await coordinator.setEnabled(false)
+    // Reopen the actual durable store: restarting cannot shorten the deadline.
+    let reopened = SwiftDataPetalRepository(container: try ModelContainerFactory.makeShared(appGroupID: "fixture", containerURL: { _ in root }))
+    let restartProbe = RetryDelayProbe()
+    let beforeDeadline = instant.addingTimeInterval(119)
+    let restarted = CloudSyncCoordinator(repository: reopened, transport: CKSyncTransport(engine: engine), now: { beforeDeadline },
+        sleep: { try await restartProbe.sleep($0) })
+    try await restarted.setEnabled(true)
+    await restarted.sync(reason: .foreground)
+    if try await reopened.syncSnapshot().retryAt != nil { await restartProbe.waitForSchedule() }
+    #expect(await restartProbe.delays == [1])
+    #expect(await engine.calls == ["fetch", "send"])
+    #expect(try await reopened.pendingOutboxCount() == 1)
+    try await restarted.setEnabled(false)
+    let deadline = instant.addingTimeInterval(120)
+    let ready = CloudSyncCoordinator(repository: reopened, transport: CKSyncTransport(engine: engine), now: { deadline })
+    try await ready.setEnabled(true)
+    #expect(await engine.calls == ["fetch", "send", "fetch", "send"])
+    #expect(try await reopened.pendingOutboxCount() == 0)
+}
+
+@Test(arguments: [false, true])
+func retryConstraintSurvivesNativeNormalizationAndLaterFetchErrors(reverse: Bool) throws {
+    let errors = [CKError(.requestRateLimited, userInfo: [CKErrorRetryAfterKey: 45]),
+        CKError(.networkUnavailable, userInfo: [CKErrorRetryAfterKey: 120]),
+        CKError(.serverRecordChanged, userInfo: [CKErrorRetryAfterKey: 60])]
+    var buffer = try EngineEventBuffer(checkpoint: nil)
+    for error in reverse ? Array(errors.reversed()) : errors { buffer.recordFailure(error) }
+    let expected = CloudTransportFailure(reason: .networkUnavailable, maxRetryAfter: 120)
+    #expect(throws: expected) { try buffer.fetchResult() }
+    #expect(throws: expected) { try buffer.sendResult() }
+    let nested = CKError(.partialFailure, userInfo: [CKPartialErrorsByItemIDKey: [
+        "network": errors[1], "throttle": errors[0], "conflict": errors[2]
+    ]])
+    #expect(CKSyncTransport.safeFailure(nested) as? CloudTransportFailure == expected)
+}
+
+@Test func atomicRecoveryAndAggregateThrowRetainRetryConstraints() throws {
+    let record = CKRecord(recordType: "PTTombstone")
+    var buffer = try EngineEventBuffer(checkpoint: nil)
+    buffer.beginSend()
+    buffer.didSend(savedRecords: [], deletedRecordIDs: [], failures: [
+        .save(record, CKError(.batchRequestFailed, userInfo: [CKErrorRetryAfterKey: 180])),
+        .delete(record.recordID, CKError(.unknownItem, userInfo: [CKErrorRetryAfterKey: 120]))
+    ])
+    let recovery = try buffer.sendResult()
+    #expect(recovery.requiresRefetch)
+    #expect(recovery.savedRecordIDs.isEmpty)
+    #expect(recovery.maxRetryAfter == 180)
+    // Aggregate operation errors are emitted after individual record events.
+    buffer.recordRetryConstraint(CKError(.partialFailure, userInfo: [CKErrorRetryAfterKey: 240]))
+    #expect(try buffer.sendResult().maxRetryAfter == 240)
+}
+
+private actor RecoveryRetryEngineFixture: SyncEngineDriving {
+    private(set) var calls: [String] = []
+    func fetch(checkpoint: Data?) async throws -> CloudFetchResult {
+        calls.append("fetch")
+        return CloudFetchResult(records: [], token: checkpoint)
+    }
+    func send(_ records: [ReplicatedRecord]) async throws -> EngineSendResult {
+        calls.append("send")
+        return EngineSendResult(savedRecordIDs: [], checkpoint: Data("recovery".utf8), requiresRefetch: true, maxRetryAfter: 180)
+    }
+    func cancel() async {}
+}
+
+@Test func recoveryResultPersistsDeadlineWithoutAcknowledgingAbortedWork() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let instant = Date(timeIntervalSince1970: 1_800_000_000)
+    _ = try await repository.createCard(title: "Retained", now: instant)
+    let engine = RecoveryRetryEngineFixture()
+    let probe = RetryDelayProbe()
+    let coordinator = CloudSyncCoordinator(repository: repository, transport: CKSyncTransport(engine: engine), now: { instant },
+        sleep: { try await probe.sleep($0) })
+    await coordinator.sync(reason: .launch)
+    await probe.waitForSchedule()
+    #expect(await probe.delays == [180])
+    #expect(try await repository.syncSnapshot().retryAt == instant.addingTimeInterval(180))
+    #expect(try await repository.syncSnapshot().token == Data("recovery".utf8))
+    #expect(try await repository.pendingOutboxCount() == 1)
+    await coordinator.sync(reason: .push)
+    #expect(await engine.calls == ["fetch", "send"])
+    try await coordinator.setEnabled(false)
+}
+
 private actor MixedAtomicEngineFixture: SyncEngineDriving {
     private var buffer = try! EngineEventBuffer(checkpoint: nil)
     private var firstUnknownSave: Bool
@@ -331,7 +483,7 @@ private actor MissingItemEngineFixture: SyncEngineDriving {
 
 @Test func engineEventsRejectFailedFetchCheckpointAndUnappliedSendInbound() async throws {
     var buffer = try EngineEventBuffer(checkpoint: nil)
-    buffer.failure = .networkUnavailable
+    buffer.recordFailure(CloudTransportError.networkUnavailable)
     #expect(throws: CloudTransportError.networkUnavailable) { try buffer.fetchResult() }
     buffer.beginSend()
     let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
