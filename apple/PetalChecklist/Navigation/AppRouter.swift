@@ -158,4 +158,12 @@ final class AppRouter {
         }
         return saved
     }
+
+    func closeRequestDidEnd() {
+        closing = false
+        isTransitioning = pendingTransitions > 0
+        if !isTransitioning {
+            for model in editors.values { model.setTransitionLocked(false) }
+        }
+    }
 }

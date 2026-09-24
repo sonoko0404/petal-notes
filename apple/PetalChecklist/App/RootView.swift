@@ -65,7 +65,8 @@ struct RootView: View {
                     }
                     }
                 }
-                .background(WindowCloseGuard { await router.prepareClose() })
+                .background(WindowCloseGuard(flush: { await router.prepareClose() },
+                                             closeRequestDidEnd: { router.closeRequestDidEnd() }))
                 .confirmationDialog("Choose New Inbox", isPresented: Binding(
                     get: { pendingInboxMove != nil },
                     set: { if !$0 { pendingInboxMove = nil } }
@@ -117,7 +118,7 @@ struct RootView: View {
         do {
             let candidates = try await router.library.replacementCandidates(for: id)
             guard router.selectedCardID == id else { return }
-            if candidates.count > 1 {
+            if Self.shouldPromptForInboxReplacement(candidates: candidates) {
                 pendingInboxMove = PendingInboxMove(cardID: id, status: status, candidates: candidates)
             } else {
                 await router.moveSelected(to: status, replacementInbox: candidates.first?.id)
@@ -126,17 +127,23 @@ struct RootView: View {
             router.present(error) { await moveSelected(to: status) }
         }
     }
+
+    static func shouldPromptForInboxReplacement(candidates: [Card]) -> Bool {
+        !candidates.isEmpty
+    }
 }
 
 /// Intercepts the only document window's close while its editor commits pending drafts.
 private struct WindowCloseGuard: NSViewRepresentable {
     let flush: @MainActor () async -> Bool
+    let closeRequestDidEnd: @MainActor () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
 
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.flush = flush
+        context.coordinator.closeRequestDidEnd = closeRequestDidEnd
         DispatchQueue.main.async { context.coordinator.attach(to: view.window) }
     }
 
@@ -144,6 +151,7 @@ private struct WindowCloseGuard: NSViewRepresentable {
 
     @MainActor final class Coordinator: NSObject, NSWindowDelegate {
         var flush: (@MainActor () async -> Bool)?
+        var closeRequestDidEnd: (@MainActor () -> Void)?
         private weak var window: NSWindow?
         private var previousDelegate: (any NSWindowDelegate)?
         private var canClose = false
@@ -162,13 +170,27 @@ private struct WindowCloseGuard: NSViewRepresentable {
         }
 
         func windowShouldClose(_ sender: NSWindow) -> Bool {
-            if canClose { return previousDelegate?.windowShouldClose?(sender) ?? true }
+            if canClose {
+                let allowed = previousDelegate?.windowShouldClose?(sender) ?? true
+                if !allowed { resetCloseRequest() }
+                return allowed
+            }
             Task { @MainActor in
                 guard await flush?() ?? true else { return }
                 canClose = true
                 sender.performClose(nil)
             }
             return false
+        }
+
+        func windowWillClose(_ notification: Notification) {
+            previousDelegate?.windowWillClose?(notification)
+            resetCloseRequest()
+        }
+
+        private func resetCloseRequest() {
+            canClose = false
+            closeRequestDidEnd?()
         }
     }
 }

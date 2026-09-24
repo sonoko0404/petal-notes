@@ -101,4 +101,64 @@ final class AppRouterTests: XCTestCase {
         XCTAssertTrue(router.isTransitioning)
         XCTAssertEqual(router.selectedCardID, a.id)
     }
+
+    func testCloseWaitsForFailedNewLineSubmissionAndKeepsDraftForRetry() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Card", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(card.id)
+        let editor = try XCTUnwrap(router.editor)
+        editor.editNewLine("Keep me")
+        repository.addGate.pauseNext()
+        repository.failNextAdd = true
+        let submission = Task { try await editor.submitNewLine() }
+        await repository.addGate.waitUntilEntered()
+        let closing = Task { await router.prepareClose() }
+        repository.addGate.resume()
+        do {
+            _ = try await submission.value
+            XCTFail("The injected add failure should reach the submitter")
+        } catch { }
+        let closeAllowed = await closing.value
+        XCTAssertFalse(closeAllowed)
+        XCTAssertEqual(editor.newLineDraft, "Keep me")
+        XCTAssertNotNil(editor.newLineError)
+        XCTAssertFalse(router.isTransitioning)
+        XCTAssertFalse(editor.isTransitionLocked)
+        let beforeRetry = try await base.lines(cardID: card.id)
+        XCTAssertTrue(beforeRetry.isEmpty)
+        let retrySucceeded = try await editor.submitNewLine()
+        XCTAssertTrue(retrySucceeded)
+        let persisted = try await base.lines(cardID: card.id).map(\.text)
+        XCTAssertEqual(persisted, ["Keep me"])
+    }
+
+    func testInboxReplacementRequiresChoiceWheneverCandidateExists() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let first = try await repository.createCard(title: "First", now: .now)
+        let second = try await repository.createCard(title: "Second", now: .now)
+        XCTAssertFalse(RootView.shouldPromptForInboxReplacement(candidates: []))
+        XCTAssertTrue(RootView.shouldPromptForInboxReplacement(candidates: [first]))
+        XCTAssertTrue(RootView.shouldPromptForInboxReplacement(candidates: [first, second]))
+    }
+
+    func testSuccessfulCloseRequestCanResetForReopenedScene() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let first = try await repository.createCard(title: "First", now: .now)
+        let second = try await repository.createCard(title: "Second", now: .now)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(first.id)
+        let allowed = await router.prepareClose()
+        XCTAssertTrue(allowed)
+        XCTAssertTrue(router.isTransitioning)
+        router.closeRequestDidEnd()
+        XCTAssertFalse(router.isTransitioning)
+        XCTAssertFalse(router.editor?.isTransitionLocked ?? true)
+        router.editor?.editTitle("Reopened")
+        await router.select(second.id)
+        let persistedTitle = try await repository.card(id: first.id)?.title
+        XCTAssertEqual(persistedTitle, "Reopened")
+        XCTAssertEqual(router.selectedCardID, second.id)
+    }
 }

@@ -88,13 +88,19 @@ final class LibraryAndEditorUITests: XCTestCase {
 
     func testInboxMoveOffersExplicitReplacementChoice() {
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-testing", "-ui-sample-cards"]
+        app.launchArguments = ["-ui-testing", "-ui-sample-cards", "-ui-extra-active-candidate"]
         app.launch()
         XCTAssertTrue(app.buttons["card.archive"].waitForExistence(timeout: 5))
         app.buttons["card.archive"].click()
-        XCTAssertTrue(app.buttons["Active sample"].waitForExistence(timeout: 5))
-        app.buttons["Active sample"].click()
+        let chooser = app.dialogs.firstMatch
+        XCTAssertTrue(chooser.waitForExistence(timeout: 5))
+        XCTAssertTrue(chooser.staticTexts["Choose New Inbox"].exists)
+        XCTAssertTrue(chooser.buttons["Active sample"].exists)
+        XCTAssertTrue(chooser.buttons["Other active sample"].exists)
+        XCTAssertTrue(app.buttons["card.archive"].exists, "The original Inbox must remain active before a choice")
+        chooser.buttons["Other active sample"].click()
         app.buttons["scope.inbox"].click()
-        XCTAssertTrue(app.staticTexts["Active sample"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Other active sample"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Active sample"].exists)
     }
 }

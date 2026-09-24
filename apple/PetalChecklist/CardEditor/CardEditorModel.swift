@@ -150,7 +150,8 @@ final class CardEditorModel {
         if isAddingLine {
             await withCheckedContinuation { submissionWaiters.append($0) }
         }
-        return await drainDrafts()
+        let draftsSaved = await drainDrafts()
+        return draftsSaved && newLineError == nil
     }
 
     func retry() async -> Bool { await flushPending() }
