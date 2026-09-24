@@ -55,7 +55,9 @@ public enum CloudRecordMapper {
         record["resetGeneration"] = value.generation.id.uuidString as CKRecordValue
         record["resetModifiedAt"] = value.generation.modifiedAt as CKRecordValue
         record["resetDeviceID"] = value.generation.deviceID as CKRecordValue
-        if value.generation.isReplacement { record["resetIsReplacement"] = 1 as CKRecordValue }
+        // Explicit zero clears a prior server value when a later normal reset
+        // updates the same PTUserState or restored card/line record identity.
+        record["resetIsReplacement"] = (value.generation.isReplacement ? 1 : 0) as CKRecordValue
         return record
     }
 

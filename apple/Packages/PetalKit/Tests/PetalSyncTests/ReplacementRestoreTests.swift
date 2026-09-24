@@ -93,7 +93,7 @@ private actor RestoreTransport: CloudTransport {
     let record = ReplicatedRecord(payload: .userState(UserStateChange(resetGeneration: decoded.id,
         inboxCardID: CardID(rawValue: decoded.id))), generation: decoded)
     let ck = try CloudRecordMapper.encode(record)
-    #expect(ck["resetIsReplacement"] == nil)
+    ck["resetIsReplacement"] = nil
     #expect(try CloudRecordMapper.decode(ck) == record)
 }
 
@@ -123,4 +123,21 @@ private actor RestoreTransport: CloudTransport {
     let ck = try CloudRecordMapper.encode(record)
     ck["resetIsReplacement"] = 2 as CKRecordValue
     #expect(throws: CloudTransportError.invalidRecord) { try CloudRecordMapper.decode(ck) }
+}
+
+@Test func normalResetExplicitlyClearsPriorCloudReplacementFlag() throws {
+    let oldGeneration = ResetGeneration(id: UUID(), modifiedAt: restoreNow, deviceID: "device", isReplacement: true)
+    let newGeneration = ResetGeneration(id: UUID(), modifiedAt: restoreNow.addingTimeInterval(1), deviceID: "device")
+    func marker(_ generation: ResetGeneration) -> ReplicatedRecord {
+        ReplicatedRecord(payload: .userState(UserStateChange(resetGeneration: generation.id,
+            inboxCardID: CardID(rawValue: generation.id))), generation: generation)
+    }
+    let server = try CloudRecordMapper.encode(marker(oldGeneration))
+    var buffer = try EngineEventBuffer(checkpoint: nil)
+    try buffer.receive([server])
+    let update = try buffer.prepare(marker(newGeneration))
+    // CKRecord updates apply changed keys; an omitted optional field does not
+    // clear the previous server value. Exercise the real prepared change set.
+    for key in update.changedKeys() { server[key] = update[key] }
+    #expect(try CloudRecordMapper.decode(server).generation == newGeneration)
 }

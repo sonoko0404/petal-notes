@@ -347,7 +347,7 @@ private actor FakeCloudTransport: CloudTransport {
     #expect(ck["modifiedAt"] as? Date == now.addingTimeInterval(1))
     #expect(ck["schemaVersion"] as? Int64 == 1)
     #expect(ck["reminderVersion"] as? Int64 == 1)
-    #expect(Set(ck.allKeys()) == Set(["payload", "modifiedAt", "revision", "deviceID", "schemaVersion", "reminderVersion", "resetGeneration", "resetModifiedAt", "resetDeviceID"]))
+    #expect(Set(ck.allKeys()) == Set(["payload", "modifiedAt", "revision", "deviceID", "schemaVersion", "reminderVersion", "resetGeneration", "resetModifiedAt", "resetDeviceID", "resetIsReplacement"]))
     #expect(try CloudRecordMapper.decode(ck) == change.record)
     ck["schemaVersion"] = 2 as CKRecordValue
     #expect(throws: CloudTransportError.invalidRecord) { try CloudRecordMapper.decode(ck) }
