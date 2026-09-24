@@ -39,6 +39,7 @@ final class ControlledRepository: PetalRepository {
     let captureGate = RepositoryGate()
     let searchGate = RepositoryGate()
     let cardGate = RepositoryGate()
+    let linesGate = RepositoryGate()
     var failNextCard = false
     var failNextAdd = false
     var failNextCapture = false
@@ -58,7 +59,11 @@ final class ControlledRepository: PetalRepository {
         if failNextCard { failNextCard = false; throw RepositoryError.injectedFailure }
         return try await base.card(id: id)
     }
-    func lines(cardID: CardID) async throws -> [CardLine] { try await base.lines(cardID: cardID) }
+    func lines(cardID: CardID) async throws -> [CardLine] {
+        let lines = try await base.lines(cardID: cardID)
+        await linesGate.enter()
+        return lines
+    }
     func addLine(_ draft: NewLineDraft, now: Date) async throws -> CardLine {
         await addGate.enter()
         if failNextAdd { failNextAdd = false; throw RepositoryError.injectedFailure }

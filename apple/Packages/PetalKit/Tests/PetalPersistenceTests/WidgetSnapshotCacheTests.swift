@@ -62,7 +62,8 @@ struct WidgetSnapshotCacheTests {
         let fixture = try await InMemoryPetalRepository.cardWithTodos(count: 1, now: now)
         let value = try await WidgetSnapshotBuilder(repository: fixture.repository).snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
         let cache = WidgetSnapshotCache(directory: directory)
-        try await cache.store(value, size: .medium, now: now, calendar: calendar)
+        let token = try await cache.beginRead(cardID: value.cardID)
+        try await cache.store(value, token: token, size: .medium, now: now, calendar: calendar)
         let url = try #require(FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first { $0.pathExtension == "json" })
         if futureSchema {
             var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
@@ -71,7 +72,7 @@ struct WidgetSnapshotCacheTests {
         } else { try Data("broken JSON".utf8).write(to: url) }
         #expect(try await cache.load(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar) == nil)
         #expect(!FileManager.default.fileExists(atPath: url.path))
-        try await cache.store(value, size: .medium, now: now, calendar: calendar)
+        try await cache.store(value, token: token, size: .medium, now: now, calendar: calendar)
         #expect(try await cache.load(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar) == value)
     }
 
@@ -81,7 +82,8 @@ struct WidgetSnapshotCacheTests {
         let fixture = try await InMemoryPetalRepository.cardWithTodos(count: 1, now: now)
         let value = try await WidgetSnapshotBuilder(repository: fixture.repository).snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
         let cache = WidgetSnapshotCache(directory: directory)
-        try await cache.store(value, size: .medium, now: now, calendar: calendar)
+        let token = try await cache.beginRead(cardID: value.cardID)
+        try await cache.store(value, token: token, size: .medium, now: now, calendar: calendar)
         var otherZone = calendar
         otherZone.timeZone = TimeZone(identifier: "Europe/London")!
         #expect(try await cache.load(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: otherZone) == nil)
@@ -97,7 +99,8 @@ struct WidgetSnapshotCacheTests {
         for _ in 0..<34 {
             let snapshot = WidgetSnapshot(cardID: CardID(rawValue: UUID()), title: "Sample", visibleLines: [], hiddenCount: 0,
                 cardState: .empty, nextRefresh: Date(timeIntervalSince1970: 1_800_057_600))
-            try await cache.store(snapshot, size: .medium, now: now, calendar: calendar)
+            let token = try await cache.beginRead(cardID: snapshot.cardID)
+            try await cache.store(snapshot, token: token, size: .medium, now: now, calendar: calendar)
         }
         let jsonFiles = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).filter { $0.pathExtension == "json" }
         #expect(jsonFiles.count == 32)
@@ -112,6 +115,56 @@ struct WidgetSnapshotCacheTests {
         let failed = await reader.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
         #expect(failed.cardState == .persistenceError)
         #expect(failed.visibleLines.isEmpty)
+    }
+
+    @Test(arguments: ["missing", "corrupt", "future"])
+    func damagedGenerationMetadataRejectsOldReadAndFreshReadsRecover(damage: String) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = try await InMemoryPetalRepository.cardWithTodos(count: 1, now: now)
+        let cache = WidgetSnapshotCache(directory: directory)
+        let oldToken = try await cache.beginRead(cardID: fixture.fixtureCardID)
+        let oldValue = try await WidgetSnapshotBuilder(repository: fixture.repository).snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
+        try await cache.store(oldValue, token: oldToken, size: .medium, now: now, calendar: calendar)
+        let metadata = try #require(FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first { $0.pathExtension == "metadata" })
+        switch damage {
+        case "missing": try FileManager.default.removeItem(at: metadata)
+        case "future":
+            var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: metadata)) as? [String: Any])
+            json["version"] = 999
+            try JSONSerialization.data(withJSONObject: json).write(to: metadata)
+        default: try Data("broken metadata".utf8).write(to: metadata)
+        }
+        let offline = WidgetSnapshotReader(cache: WidgetSnapshotCache(directory: directory)) { throw RepositoryError.appGroupUnavailable }
+        #expect(await offline.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar).visibleLines.isEmpty)
+
+        let line = try #require(await fixture.repository.lines(cardID: fixture.fixtureCardID).first)
+        _ = try await fixture.repository.updateLine(.init(id: line.id, kind: .todo, text: "Fresh", reminder: nil), now: now)
+        let freshReader = WidgetSnapshotReader(cache: WidgetSnapshotCache(directory: directory)) { fixture.repository }
+        _ = await freshReader.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
+        // A token acquired before metadata loss/corruption must never regain validity.
+        try? await cache.store(oldValue, token: oldToken, size: .medium, now: now, calendar: calendar)
+        let recovered = await offline.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
+        #expect(recovered.visibleLines.map(\.text) == ["Fresh"])
+    }
+
+    @Test func generationEvictionBoundsMetadataWithoutRevalidatingOldTokens() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = WidgetSnapshotCache(directory: directory)
+        let snapshot = WidgetSnapshot(cardID: CardID(rawValue: UUID()), title: "Old read", visibleLines: [], hiddenCount: 0,
+            cardState: .empty, nextRefresh: Date(timeIntervalSince1970: 1_800_057_600))
+        let oldToken = try await cache.beginRead(cardID: snapshot.cardID)
+        for _ in 0..<128 { _ = try await cache.beginRead(cardID: CardID(rawValue: UUID())) }
+        try await cache.store(snapshot, token: oldToken, size: .medium, now: now, calendar: calendar)
+        #expect(try await cache.load(cardID: snapshot.cardID, size: .medium, now: now, calendar: calendar) == nil)
+        let metadata = try #require(FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first { $0.pathExtension == "metadata" })
+        let json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: metadata)) as? [String: Any])
+        #expect((json["generations"] as? [Any])?.count == 128)
+
+        let newToken = try await cache.beginRead(cardID: snapshot.cardID)
+        try await cache.store(snapshot, token: newToken, size: .medium, now: now, calendar: calendar)
+        #expect(try await cache.load(cardID: snapshot.cardID, size: .medium, now: now, calendar: calendar) == snapshot)
     }
 }
 

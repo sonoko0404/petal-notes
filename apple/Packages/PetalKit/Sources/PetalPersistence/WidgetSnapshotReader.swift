@@ -14,12 +14,17 @@ public actor WidgetSnapshotReader {
 
     public func snapshot(cardID: CardID, size: WidgetDisplaySize, now: Date, calendar: Calendar) async -> WidgetSnapshot {
         let key = cardID.rawValue.uuidString + (size == .medium ? ".medium" : ".large")
+        let token = try? await persistentCache?.beginRead(cardID: cardID)
         do {
             let repository = try await openRepository()
             let value = try await WidgetSnapshotBuilder(repository: repository).snapshot(cardID: cardID, size: size, now: now, calendar: calendar)
             if let persistentCache {
-                // A cache write failure must not discard a successful database read.
-                try? await persistentCache.store(value, size: size, now: now, calendar: calendar)
+                if value.cardState == .normal || value.cardState == .empty {
+                    // A stale token cannot repopulate a cache invalidated by another reader.
+                    if let token { try? await persistentCache.store(value, token: token, size: size, now: now, calendar: calendar) }
+                } else {
+                    try? await persistentCache.invalidate(cardID: cardID)
+                }
             } else {
                 if cache.count >= 32 { cache.removeAll() }
                 if value.cardState == .normal || value.cardState == .empty { cache[key] = value }

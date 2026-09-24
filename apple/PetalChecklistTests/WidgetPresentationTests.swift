@@ -72,6 +72,46 @@ final class WidgetPresentationTests: XCTestCase {
         XCTAssertEqual(provider.timeline(for: entry).policy, .after(Date(timeIntervalSince1970: 1_800_057_600)))
     }
 
+    func testDelayedActiveReadCannotRepopulateInvalidatedCacheAfterRestart() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        for state in [WidgetCardState.archived, .trashed, .unavailable] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let fixture = try await InMemoryPetalRepository.cardWithTodos(count: 8, now: now)
+            let gated = ControlledRepository(base: fixture.repository)
+            let delayedReader = WidgetSnapshotReader(cache: WidgetSnapshotCache(directory: directory)) { gated }
+            let confirmingReader = WidgetSnapshotReader(cache: WidgetSnapshotCache(directory: directory)) { fixture.repository }
+            _ = await confirmingReader.snapshot(cardID: fixture.fixtureCardID, size: .large, now: now, calendar: calendar)
+
+            gated.linesGate.pauseNext()
+            defer { gated.linesGate.resume() }
+            let oldRead = Task { await delayedReader.snapshot(cardID: fixture.fixtureCardID, size: .large, now: now, calendar: calendar) }
+            await gated.linesGate.waitUntilEntered() // A has already read the active card and its lines.
+            try await fixture.repository.moveCard(fixture.fixtureCardID, to: state == .archived ? .archived : .trashed,
+                replacementInbox: nil, now: now)
+            if state == .unavailable { try await fixture.repository.purgeExpiredTrash(now: now.addingTimeInterval(30 * 86400)) }
+            let confirmation = await confirmingReader.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
+            XCTAssertEqual(confirmation.cardState, state)
+            gated.linesGate.resume() // A finishes only after B has confirmed and invalidated.
+            _ = await oldRead.value
+
+            let restarted = WidgetSnapshotReader(cache: WidgetSnapshotCache(directory: directory)) { throw RepositoryError.appGroupUnavailable }
+            let recovered = await restarted.snapshot(cardID: fixture.fixtureCardID, size: .large, now: now, calendar: calendar)
+            XCTAssertEqual(recovered.cardState, .persistenceError)
+            XCTAssertTrue(recovered.visibleLines.isEmpty, "Delayed active read repopulated cache after \(state)")
+
+            if state != .unavailable {
+                try await fixture.repository.moveCard(fixture.fixtureCardID, to: .active, replacementInbox: nil, now: now)
+                let restoredReader = WidgetSnapshotReader(cache: WidgetSnapshotCache(directory: directory)) { fixture.repository }
+                _ = await restoredReader.snapshot(cardID: fixture.fixtureCardID, size: .large, now: now, calendar: calendar)
+                let restored = await restarted.snapshot(cardID: fixture.fixtureCardID, size: .large, now: now, calendar: calendar)
+                XCTAssertEqual(restored.visibleLines.count, 8, "A fresh read after restore must be cacheable")
+            }
+        }
+    }
+
     func testPreviewMatrixRendersAtWidgetSizes() throws {
         // These attachments are visual-review evidence, not pixel-golden assertions.
         for scenario in ChecklistWidgetPreviews.scenarios {
