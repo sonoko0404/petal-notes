@@ -37,7 +37,8 @@ public enum CloudRecordMapper {
         switch record.payload {
         case .card(let v): ("PTCard", v.id.rawValue, v.modifiedAt, v.revision, v.deviceID)
         case .line(let v): ("PTLine", v.id.rawValue, v.modifiedAt, v.revision, v.deviceID)
-        case .userState: ("PTUserState", userStateID, record.generation.modifiedAt, 1, record.generation.deviceID)
+        case .userState(let value): ("PTUserState", userStateID, value.modifiedAt ?? record.generation.modifiedAt,
+            value.revision ?? 1, value.deviceID ?? record.generation.deviceID)
         case .tombstone(let v): (v.entity == .card ? "PTCard" : "PTLine", v.entityID, v.deletedAt, v.revision, v.deviceID)
         }
     }

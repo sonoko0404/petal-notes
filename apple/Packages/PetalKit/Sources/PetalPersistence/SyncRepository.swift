@@ -1,6 +1,10 @@
 import Foundation
 import PetalCore
 
+public enum ReplacementDeliveryStatus: String, Codable, Sendable {
+    case awaitingDeclaration, awaitingInbox, awaitingValidInitialInbox, complete
+}
+
 /// All synchronization operations exchange values; stored models remain actor-confined.
 public protocol PetalSyncRepository: PetalRepository {
     func syncSnapshot() async throws -> SyncSnapshot
@@ -35,11 +39,16 @@ public struct SyncSnapshot: Sendable {
     public let retryAt: Date?
     public let preferenceEpoch: UInt64
     public var replacementExpectedInboxID: UUID? = nil
+    public var replacementDeliveryStatus: ReplacementDeliveryStatus? = nil
 }
 
 struct LocalSyncMetadata: Codable {
     var replacementPlaceholderID: UUID?
     var replacementExpectedInboxID: UUID?
+    var authoritativeUserState: UserStateChange?
+    var replacementInitialDeliveryComplete: Bool?
+    var replacementInitialInboxIDs: Set<UUID>?
+    var replacementDeliveryStatus: ReplacementDeliveryStatus?
     var enabled = true
     var token: Data?
     var tombstones: [SyncTombstone] = []

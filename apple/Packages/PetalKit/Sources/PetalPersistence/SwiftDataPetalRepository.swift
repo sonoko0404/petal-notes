@@ -247,7 +247,8 @@ private actor RepositoryStore {
                          tombstones: try syncMetadata().tombstones, generation: try syncMetadata().generation,
                          state: try syncMetadata().state, retryAt: try syncMetadata().retryAt,
                          preferenceEpoch: try syncMetadata().preferenceEpoch ?? 0,
-                         replacementExpectedInboxID: try syncMetadata().replacementExpectedInboxID)
+                         replacementExpectedInboxID: try syncMetadata().replacementExpectedInboxID,
+                         replacementDeliveryStatus: try syncMetadata().replacementDeliveryStatus)
         }
     }
 
@@ -267,6 +268,17 @@ private actor RepositoryStore {
             if let token {
                 var metadata = try syncMetadata(); metadata.token = token
                 try syncMetadataRow().payload = JSONEncoder().encode(metadata)
+            }
+            let metadata = try syncMetadata()
+            if metadata.generation.isReplacement, metadata.replacementPlaceholderID == nil,
+               metadata.authoritativeUserState?.replacementMode == true,
+               try metadata.authoritativeUserState?.deviceID == deviceID(),
+               try pendingOutbox().allSatisfy({ $0.entity == .conflict }),
+               let inbox = try cards(scope: .active).first(where: \.isInbox) {
+                // Durable follow-up intent, in the acknowledgement transaction.
+                // A crash or failed clear send cannot leave it forgotten.
+                try publishCurrentInbox(inbox.id, replacementMode: false,
+                    now: metadata.authoritativeUserState?.modifiedAt ?? metadata.generation.modifiedAt)
             }
         }
     }
@@ -313,53 +325,28 @@ private actor RepositoryStore {
                 return rank($0) < rank($1)
             }
             if metadata.generation.isReplacement {
-                var declared = Set(records.compactMap(\.replacementInboxID))
-                if let expected = metadata.replacementExpectedInboxID { declared.insert(expected) }
                 for record in records {
                     if case .userState(let state) = record.payload {
-                        guard state.resetGeneration == metadata.generation.id else { throw RepositoryError.replacementInboxRequired }
-                        declared.insert(state.inboxCardID.rawValue)
-                    }
-                }
-                guard declared.count <= 1, !declared.isEmpty || metadata.replacementPlaceholderID == nil else {
-                    throw RepositoryError.replacementInboxRequired
-                }
-                metadata.replacementExpectedInboxID = declared.first
-                if metadata.replacementPlaceholderID != nil, let expected = declared.first {
-                    for record in records {
-                        if case .tombstone(let tombstone) = record.payload, tombstone.entity == .card && tombstone.entityID == expected {
-                            throw RepositoryError.replacementInboxRequired
-                        }
-                        if case .card(let card) = record.payload, card.id.rawValue == expected {
-                            guard card.status == .active && card.isInbox && card.deletedAt == nil && card.archivedAt == nil else {
-                                throw RepositoryError.replacementInboxRequired
+                        guard state.resetGeneration == metadata.generation.id else { continue }
+                        let resolved = state.resolved(in: metadata.generation)
+                        if metadata.authoritativeUserState.map({ resolved.isNewer(than: $0, in: metadata.generation) }) ?? true {
+                            metadata.authoritativeUserState = resolved
+                            // A remote winner invalidates an older pending marker,
+                            // not unrelated card/line journal entries.
+                            for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredOutboxChange>()) {
+                                let change = try row.value()
+                                if change.entity == .userState { context.delete(row) }
                             }
                         }
                     }
                 }
-            }
-            let restoredInbox = records.compactMap { record -> CardID? in
-                if case .card(let card) = record.payload, card.id.rawValue == metadata.replacementExpectedInboxID,
-                   card.status == .active && card.isInbox { return card.id }
-                return nil
-            }.first
-            let preferredInbox = metadata.replacementPlaceholderID != nil ? restoredInbox : nil
-            if let placeholder = metadata.replacementPlaceholderID, restoredInbox != nil {
-                // A marker-only page gets a local, never-uploaded placeholder.
-                // Remove it when real replacement content arrives. Captures made
-                // while waiting remain as a normal card rather than losing edits.
-                let placeholderCard = try cards(scope: .all).first { $0.id.rawValue == placeholder }
-                let hasChildren = try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).contains {
-                    try $0.value().cardID.rawValue == placeholder
+                if let state = metadata.authoritativeUserState {
+                    metadata.replacementExpectedInboxID = state.inboxCardID.rawValue
+                    if state.replacementMode == false { metadata.replacementInitialDeliveryComplete = true }
+                } else if metadata.replacementExpectedInboxID == nil {
+                    let declarations = Set(records.compactMap(\.replacementInboxID))
+                    if declarations.count == 1 { metadata.replacementExpectedInboxID = declarations.first }
                 }
-                let hasPendingEdits = try pendingOutbox().contains { $0.entityID == placeholder }
-                if placeholderCard?.revision == 1 && !hasChildren && !hasPendingEdits {
-                    try removeEntity(.card, id: placeholder)
-                } else if var card = placeholderCard {
-                    card.isInbox = false
-                    try saveCard(card, stored: storedCard(card.id), now: now)
-                }
-                metadata.replacementPlaceholderID = nil
             }
             var unresolved: [UUID: ReplicatedRecord] = [:]
             // Deletions are applied first, independent of server page ordering.
@@ -393,6 +380,13 @@ private actor RepositoryStore {
                     } else {
                         context.insert(try PetalSchemaV1.StoredCard(card))
                         try discardSupersededDeletion(entity: .card, id: card.id.rawValue)
+                    }
+                    if metadata.generation.isReplacement && metadata.replacementInitialDeliveryComplete != true {
+                        var candidates = metadata.replacementInitialInboxIDs ?? []
+                        if card.isInbox && card.status == .active && card.archivedAt == nil && card.deletedAt == nil {
+                            candidates.insert(card.id.rawValue)
+                        } else { candidates.remove(card.id.rawValue) }
+                        metadata.replacementInitialInboxIDs = candidates
                     }
                 case .line(let line):
                     if metadata.tombstones.contains(where: {
@@ -431,12 +425,68 @@ private actor RepositoryStore {
                 throw RepositoryError.unresolvedInboundCapacityExceeded
             }
             metadata.token = token
+            let preferredInbox = try reconcileReplacement(&metadata, now: now)
             try syncMetadataRow().payload = JSONEncoder().encode(metadata)
-            try repairInbox(now: now, preferred: preferredInbox)
+            try repairInbox(now: now, preferred: preferredInbox, replicateChanges: !metadata.generation.isReplacement)
         }
     }
 
-    private func repairInbox(now: Date, preferred: CardID? = nil) throws {
+    private func reconcileReplacement(_ metadata: inout LocalSyncMetadata, now: Date) throws -> CardID? {
+        guard metadata.generation.isReplacement else { return nil }
+        let all = try cards(scope: .all)
+        let expected = all.first { $0.id.rawValue == metadata.replacementExpectedInboxID }
+        let initial = metadata.replacementInitialDeliveryComplete != true
+        let valid = expected.map { $0.status == .active && $0.deletedAt == nil && $0.archivedAt == nil
+            && (!initial || $0.isInbox || metadata.replacementInitialInboxIDs?.contains($0.id.rawValue) == true) } ?? false
+        guard valid, let target = expected else {
+            if metadata.replacementExpectedInboxID == nil { metadata.replacementDeliveryStatus = .awaitingDeclaration }
+            else if initial && (expected != nil || metadata.tombstones.contains { $0.entity == .card && $0.entityID == metadata.replacementExpectedInboxID }) {
+                metadata.replacementDeliveryStatus = .awaitingValidInitialInbox
+            } else { metadata.replacementDeliveryStatus = .awaitingInbox }
+            if !all.contains(where: { $0.status == .active && $0.archivedAt == nil && $0.deletedAt == nil }) {
+                // A later lifecycle page can arrive after initial delivery but
+                // before its new Inbox. This placeholder is local and disposable,
+                // never a fabricated synchronized user card.
+                let id = UUID()
+                let card = Card(id: CardID(rawValue: id), title: "Inbox", status: .active, themeID: .cream,
+                    isInbox: true, createdAt: now, modifiedAt: now, archivedAt: nil, deletedAt: nil,
+                    revision: 1, deviceID: try deviceID())
+                context.insert(try PetalSchemaV1.StoredCard(card))
+                metadata.replacementPlaceholderID = id
+            }
+            return metadata.replacementPlaceholderID.map(CardID.init(rawValue:))
+        }
+        if let placeholder = metadata.replacementPlaceholderID, placeholder != target.id.rawValue {
+            let placeholderCard = all.first { $0.id.rawValue == placeholder }
+            let hasChildren = try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).contains { try $0.value().cardID.rawValue == placeholder }
+            let hasPendingEdits = try pendingOutbox().contains { $0.entityID == placeholder }
+            if placeholderCard?.revision == 1 && !hasChildren && !hasPendingEdits {
+                try removeEntity(.card, id: placeholder)
+            } else if var card = placeholderCard {
+                card.isInbox = false
+                try saveCard(card, stored: storedCard(card.id), now: max(now, card.modifiedAt.addingTimeInterval(0.001)))
+            }
+        }
+        metadata.replacementPlaceholderID = nil
+        metadata.replacementInitialDeliveryComplete = true
+        metadata.replacementDeliveryStatus = .complete
+        return target.id
+    }
+
+    private func publishCurrentInbox(_ inbox: CardID, replacementMode: Bool, now: Date) throws {
+        var metadata = try syncMetadata()
+        let previous = metadata.authoritativeUserState?.resolved(in: metadata.generation)
+        let state = UserStateChange(resetGeneration: metadata.generation.id, inboxCardID: inbox, replacementMode: replacementMode,
+            revision: (previous?.revision ?? 0) + 1,
+            modifiedAt: max(now, (previous?.modifiedAt ?? metadata.generation.modifiedAt).addingTimeInterval(0.001)), deviceID: try deviceID())
+        metadata.authoritativeUserState = state
+        metadata.replacementExpectedInboxID = inbox.rawValue
+        if !replacementMode { metadata.replacementInitialDeliveryComplete = true }
+        try syncMetadataRow().payload = JSONEncoder().encode(metadata)
+        try appendChange(entity: .userState, id: metadata.generation.id, payload: JSONEncoder().encode(state), now: now)
+    }
+
+    private func repairInbox(now: Date, preferred: CardID? = nil, replicateChanges: Bool = true) throws {
         let active = try cards(scope: .active)
         guard !active.isEmpty else { _ = try insertCard(title: "Inbox", isInbox: true, now: now); return }
         let flagged = active.filter(\.isInbox)
@@ -445,7 +495,12 @@ private actor RepositoryStore {
             let isInbox = card.id == chosen.id
             guard card.isInbox != isInbox else { continue }
             card.isInbox = isInbox
-            try saveCard(card, stored: storedCard(card.id), now: now)
+            if replicateChanges { try saveCard(card, stored: storedCard(card.id), now: now) }
+            else {
+                // Ordered user state owns this role. Projecting it must not
+                // fabricate a newer content edit on another device's card.
+                try storedCard(card.id).payload = JSONEncoder().encode(card)
+            }
         }
     }
 
@@ -727,6 +782,7 @@ private actor RepositoryStore {
                                createReplacement: Bool, now: Date) throws {
             let stored = try storedCard(id)
             var value = try stored.value()
+            let wasInbox = value.isInbox
             guard value.status != status else { return }
             if value.isInbox && status != .active {
                 let candidates = try cards(scope: .active).filter { $0.id != id }
@@ -746,6 +802,11 @@ private actor RepositoryStore {
             value.archivedAt = status == .archived ? now : nil
             value.deletedAt = status == .trashed ? now : nil
             try saveCard(value, stored: stored, now: now)
+            let metadata = try syncMetadata()
+            if wasInbox && metadata.generation.isReplacement && metadata.replacementPlaceholderID == nil,
+               let inbox = try cards(scope: .active).first(where: \.isInbox) {
+                try publishCurrentInbox(inbox.id, replacementMode: false, now: now)
+            }
     }
 
     func search(_ query: String) throws -> [SearchResult] {
@@ -875,6 +936,10 @@ private actor RepositoryStore {
             metadata.resetCleanupPending = true
             metadata.replacementPlaceholderID = nil
             metadata.replacementExpectedInboxID = nil
+            metadata.authoritativeUserState = nil
+            metadata.replacementInitialDeliveryComplete = nil
+            metadata.replacementInitialInboxIDs = nil
+            metadata.replacementDeliveryStatus = nil
             if generation.isReplacement {
                 metadata.tombstones = []
                 try syncMetadataRow().payload = JSONEncoder().encode(metadata)
@@ -890,8 +955,7 @@ private actor RepositoryStore {
                             createdAt: generation.modifiedAt, modifiedAt: generation.modifiedAt, archivedAt: nil,
                             deletedAt: nil, revision: 1, deviceID: generation.deviceID))
                     }
-                    let payload = try JSONEncoder().encode(UserStateChange(resetGeneration: generation.id, inboxCardID: inboxID))
-                    try appendChange(entity: .userState, id: generation.id, payload: payload, now: now)
+                    try publishCurrentInbox(inboxID, replacementMode: true, now: generation.modifiedAt)
                     for var card in cards {
                         card.isInbox = card.id == inboxID
                         card.deviceID = generation.deviceID; card.revision = 1; card.modifiedAt = generation.modifiedAt

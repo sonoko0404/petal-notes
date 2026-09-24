@@ -49,46 +49,45 @@ private func identityFixture() -> (ResetGeneration, Card, ReplicatedRecord) {
     return (generation, card, marker)
 }
 
-@Test(arguments: ["archived", "trashed", "unflagged", "mismatch", "redacted"])
-func replacementExpectedInboxRejectsInvalidArrivalWithoutCheckpointMutation(kind: String) async throws {
+@Test(arguments: ["archived", "trashed", "unflagged", "malformed", "redacted"])
+func replacementStagesUnavailableInitialInboxWithoutDiscardingUnrelatedRecords(kind: String) async throws {
     let (generation, expected, marker) = identityFixture()
     let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     try await repository.applyInbound([marker], token: Data([1]), now: identityNow)
-    let before = try await repository.transferSnapshot()
-    let outbox = try await repository.pendingOutbox()
     var invalid = expected
     if kind == "archived" { invalid.status = .archived; invalid.archivedAt = identityNow }
     if kind == "trashed" { invalid.status = .trashed; invalid.deletedAt = identityNow }
     if kind == "unflagged" { invalid.isInbox = false }
+    if kind == "malformed" { invalid.deletedAt = identityNow }
     let payload: ReplicatedRecord.Payload = kind == "redacted" ? .tombstone(SyncTombstone(id: UUID(), entity: .card,
         entityID: expected.id.rawValue, deletedAt: identityNow, deviceID: "sender", revision: 2)) : .card(invalid)
     let incoming = ReplicatedRecord(payload: payload, generation: generation,
-        replacementInboxID: kind == "mismatch" ? UUID() : expected.id.rawValue)
-    await #expect(throws: RepositoryError.replacementInboxRequired) {
-        try await repository.applyInbound([incoming], token: Data([2]), now: identityNow)
-    }
-    #expect(try await repository.transferSnapshot() == before)
-    #expect(try await repository.pendingOutbox() == outbox)
-    #expect(try await repository.syncSnapshot().token == Data([1]))
-    try await repository.applyInbound([ReplicatedRecord(payload: .card(expected), generation: generation,
-        replacementInboxID: expected.id.rawValue)], token: Data([3]), now: identityNow)
-    #expect(try await repository.cards(scope: .active).filter(\.isInbox).map(\.id) == [expected.id])
-    #expect(try await repository.cards(scope: .all).count == 1)
+        replacementInboxID: expected.id.rawValue)
+    var other = expected
+    other = Card(id: CardID(rawValue: UUID()), title: "Unrelated content", status: .active, themeID: .cream,
+        isInbox: false, createdAt: identityNow, modifiedAt: identityNow, archivedAt: nil, deletedAt: nil, revision: 1, deviceID: "sender")
+    try await repository.applyInbound([incoming, ReplicatedRecord(payload: .card(other), generation: generation)], token: Data([2]), now: identityNow)
+    #expect(try await repository.card(id: other.id)?.title == "Unrelated content")
+    #expect(try await repository.syncSnapshot().token == Data([2]))
+    #expect(try await repository.syncSnapshot().replacementDeliveryStatus == .awaitingValidInitialInbox)
+    #expect(try await repository.cards(scope: .active).filter(\.isInbox).count == 1)
+    let current = UserStateChange(resetGeneration: generation.id, inboxCardID: other.id, replacementMode: false,
+        revision: 2, modifiedAt: identityNow.addingTimeInterval(1), deviceID: "sender")
+    try await repository.applyInbound([ReplicatedRecord(payload: .userState(current), generation: generation)], token: Data([3]), now: identityNow)
+    #expect(try await repository.cards(scope: .active).filter(\.isInbox).map(\.id) == [other.id])
+    #expect(try await repository.syncSnapshot().replacementDeliveryStatus == .complete)
 }
 
 @Test func legacyReplacementNeedsMarkerInsteadOfGuessingFromContent() async throws {
     let (generation, expected, _) = identityFixture()
     let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     _ = try await repository.createCard(title: "Old data", now: identityNow)
-    let before = try await repository.transferSnapshot()
     let content = ReplicatedRecord(payload: .card(expected), generation: generation)
-    await #expect(throws: RepositoryError.replacementInboxRequired) {
-        try await repository.applyInbound([content], token: Data([1]), now: identityNow)
-    }
-    #expect(try await repository.transferSnapshot() == before)
+    try await repository.applyInbound([content], token: Data([1]), now: identityNow)
+    #expect(try await repository.syncSnapshot().replacementDeliveryStatus == .awaitingDeclaration)
     let marker = ReplicatedRecord(payload: .userState(UserStateChange(resetGeneration: generation.id,
         inboxCardID: expected.id)), generation: generation)
-    try await repository.applyInbound([marker, content], token: Data([2]), now: identityNow)
+    try await repository.applyInbound([marker], token: Data([2]), now: identityNow)
     #expect(try await repository.cards(scope: .active).filter(\.isInbox).map(\.id) == [expected.id])
     #expect(try await repository.cards(scope: .all).count == 1)
 }
