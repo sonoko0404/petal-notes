@@ -10,6 +10,10 @@ public struct SwiftDataPetalRepository: PetalSyncRepository, PetalTransferReposi
     }
 
     public func bootstrap(now: Date) async throws { try await store.bootstrap(now: now) }
+    public func bootstrapOnboarding(seed: OnboardingSeed, now: Date) async throws -> Bool {
+        try await store.bootstrapOnboarding(seed: seed, now: now)
+    }
+    public func completeOnboarding() async throws { try await store.completeOnboarding() }
     public func cards(scope: CardScope) async throws -> [Card] { try await store.cards(scope: scope) }
     public func card(id: CardID) async throws -> Card? { try await store.cards(scope: .all).first { $0.id == id } }
     public func createCard(title: String, now: Date) async throws -> Card {
@@ -194,10 +198,37 @@ private actor RepositoryStore {
         return card
     }
 
+    func bootstrapOnboarding(seed: OnboardingSeed, now: Date) throws -> Bool {
+        try transaction {
+            var metadata = try syncMetadata()
+            if let completed = metadata.onboardingCompleted { return !completed }
+            let fresh = try cards(scope: .all).isEmpty && metadata.generation == .initial
+            if fresh {
+                guard seed.todos.count == 3 else { throw TransferRepositoryError.invalidSnapshot }
+                _ = try insertCard(title: seed.inbox, isInbox: true, now: now)
+                let sample = try insertCard(title: seed.title, isInbox: false, now: now)
+                for (index, text) in seed.todos.enumerated() {
+                    _ = try insertLine(NewLineDraft(cardID: sample.id, kind: .todo, text: text), sortIndex: Int64(index), now: now)
+                }
+            }
+            metadata.onboardingCompleted = !fresh
+            try syncMetadataRow().payload = JSONEncoder().encode(metadata)
+            return fresh
+        }
+    }
+
+    func completeOnboarding() throws {
+        try transaction(notify: false) {
+            var metadata = try syncMetadata()
+            metadata.onboardingCompleted = true
+            try syncMetadataRow().payload = JSONEncoder().encode(metadata)
+        }
+    }
+
     func bootstrap(now: Date) throws {
         try transaction {
             if try !cards(scope: .active).contains(where: \.isInbox) {
-                _ = try insertCard(title: "Inbox", isInbox: true, now: now)
+                _ = try insertCard(title: PetalStrings.text("ui.inbox.94835e"), isInbox: true, now: now)
             }
         }
     }
@@ -487,7 +518,7 @@ private actor RepositoryStore {
                 // before its new Inbox. This placeholder is local and disposable,
                 // never a fabricated synchronized user card.
                 let id = UUID()
-                let card = Card(id: CardID(rawValue: id), title: "Inbox", status: .active, themeID: .cream,
+                let card = Card(id: CardID(rawValue: id), title: PetalStrings.text("ui.inbox.94835e"), status: .active, themeID: .cream,
                     isInbox: true, createdAt: now, modifiedAt: now, archivedAt: nil, deletedAt: nil,
                     revision: 1, deviceID: try deviceID())
                 context.insert(try PetalSchemaV1.StoredCard(card))
@@ -527,7 +558,7 @@ private actor RepositoryStore {
 
     private func repairInbox(now: Date, preferred: CardID? = nil, replicateChanges: Bool = true) throws {
         let active = try cards(scope: .active)
-        guard !active.isEmpty else { _ = try insertCard(title: "Inbox", isInbox: true, now: now); return }
+        guard !active.isEmpty else { _ = try insertCard(title: PetalStrings.text("ui.inbox.94835e"), isInbox: true, now: now); return }
         let flagged = active.filter(\.isInbox)
         let chosen = active.first { $0.id == preferred } ?? (flagged.isEmpty ? active : flagged).min { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString }!
         for var card in try cards(scope: .all) {
@@ -844,7 +875,7 @@ private actor RepositoryStore {
                     replacement.isInbox = true
                     try saveCard(replacement, stored: storedCard(selected), now: now)
                 } else if selected == nil && createReplacement && candidates.isEmpty {
-                    _ = try insertCard(title: "Inbox", isInbox: true, now: now)
+                    _ = try insertCard(title: PetalStrings.text("ui.inbox.94835e"), isInbox: true, now: now)
                 } else {
                     throw RepositoryError.replacementInboxRequired
                 }
@@ -984,6 +1015,7 @@ private actor RepositoryStore {
             }
             var metadata = try syncMetadata()
             metadata.generation = generation
+            metadata.onboardingCompleted = true
             metadata.unresolvedLines = nil
             metadata.resetCleanupPending = true
             metadata.replacementPlaceholderID = nil
@@ -1003,7 +1035,7 @@ private actor RepositoryStore {
                     metadata.replacementExpectedInboxID = inboxID.rawValue
                     try syncMetadataRow().payload = JSONEncoder().encode(metadata)
                     if active.isEmpty {
-                        cards.append(Card(id: inboxID, title: "Inbox", status: .active, themeID: .cream, isInbox: true,
+                        cards.append(Card(id: inboxID, title: PetalStrings.text("ui.inbox.94835e"), status: .active, themeID: .cream, isInbox: true,
                             createdAt: generation.modifiedAt, modifiedAt: generation.modifiedAt, archivedAt: nil,
                             deletedAt: nil, revision: 1, deviceID: generation.deviceID))
                     }
@@ -1020,7 +1052,7 @@ private actor RepositoryStore {
                         try appendChange(entity: .line, id: row.id, payload: row.payload, now: now)
                     }
                 } else {
-                    let card = Card(id: CardID(rawValue: generation.id), title: "Inbox", status: .active, themeID: .cream,
+                    let card = Card(id: CardID(rawValue: generation.id), title: PetalStrings.text("ui.inbox.94835e"), status: .active, themeID: .cream,
                         isInbox: true, createdAt: generation.modifiedAt, modifiedAt: generation.modifiedAt,
                         archivedAt: nil, deletedAt: nil, revision: 1, deviceID: generation.deviceID)
                     context.insert(try PetalSchemaV1.StoredCard(card))
@@ -1046,7 +1078,7 @@ private actor RepositoryStore {
                 try appendChange(entity: tombstone.entity == .card ? .card : .line, id: tombstone.entityID,
                     payload: Data(), now: now, operation: .delete)
             }
-            let inbox = try insertCard(title: "Inbox", isInbox: true, now: generation.modifiedAt, id: generation.id)
+            let inbox = try insertCard(title: PetalStrings.text("ui.inbox.94835e"), isInbox: true, now: generation.modifiedAt, id: generation.id)
             let payload = try JSONEncoder().encode(UserStateChange(resetGeneration: generation.id, inboxCardID: inbox.id))
             try appendChange(entity: .userState, id: generation.id, payload: payload, now: now)
     }

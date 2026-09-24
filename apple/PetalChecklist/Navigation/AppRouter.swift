@@ -62,7 +62,7 @@ final class AppRouter {
                 }
             } catch {
                 guard !closing, (!supersedesUserIntent || isCurrent(request)) else { return }
-                errorMessage = error.localizedDescription
+                errorMessage = PetalErrorCopy.message(error)
                 retryAction = retryAction ?? retry
             }
         }
@@ -148,7 +148,7 @@ final class AppRouter {
         await transition({ [self] request in
             try await flushEditor()
             guard isCurrent(request) else { return }
-            let card = try await library.createCard(title: String(localized: "Untitled Card"))
+            let card = try await library.createCard(title: String(localized: "ui.untitled_card.41c565"))
             retryAction = { [weak self] in await self?.select(card.id) }
             let next = CardEditorModel(cardID: card.id, repository: repository, reminders: reminders)
             try await next.load()
@@ -214,7 +214,7 @@ final class AppRouter {
     }
 
     func present(_ error: Error, retry: @escaping @MainActor () async -> Void) {
-        errorMessage = error.localizedDescription
+        errorMessage = PetalErrorCopy.message(error)
         retryAction = retry
     }
 

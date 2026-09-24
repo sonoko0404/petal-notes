@@ -187,7 +187,7 @@ final class CardEditorModel {
             newLineError = nil
             return true
         } catch {
-            newLineError = error.localizedDescription
+            newLineError = PetalErrorCopy.message(error)
             throw error
         }
     }
@@ -250,7 +250,7 @@ final class CardEditorModel {
             if unsavedTitle == nil && unsavedText.isEmpty { saveState = .saved }
             return true
         } catch {
-            saveState = .failed(error.localizedDescription)
+            saveState = .failed(PetalErrorCopy.message(error))
             return false
         }
     }

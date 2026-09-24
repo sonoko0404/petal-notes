@@ -57,14 +57,14 @@ struct ChecklistTimelineProvider: AppIntentTimelineProvider {
 
     /// Static, synthetic samples only: gallery code never opens a store or consumes a selected card.
     static func gallery(now: Date, calendar: Calendar) -> ChecklistEntry {
-        let labels = [String(localized: "A little space to plan", table: "Widgets"),
-                      String(localized: "Make time for what matters", table: "Widgets"),
-                      String(localized: "One thing at a time", table: "Widgets")]
+        let labels = [String(localized: "ui.a_little_space_to_plan.f70d72", table: "Widgets"),
+                      String(localized: "ui.make_time_for_what_matters.ab7cd4", table: "Widgets"),
+                      String(localized: "ui.one_thing_at_a_time.59d36a", table: "Widgets")]
         let rows = labels.enumerated().map { index, title in
             WidgetLine(id: LineID(rawValue: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index + 1))!),
                 kind: index == 0 ? .text : .todo, text: title, isCompleted: false)
         }
-        return ChecklistEntry(date: now, snapshot: WidgetSnapshot(cardID: placeholderID, title: "Petal", visibleLines: rows,
+        return ChecklistEntry(date: now, snapshot: WidgetSnapshot(cardID: placeholderID, title: String(localized: "ui.petal.b83a3f", table: "Widgets"), visibleLines: rows,
             hiddenCount: 0, cardState: .normal, nextRefresh: calendar.dateInterval(of: .day, for: now)!.end),
             theme: .cream, typeface: .standard, material: .solid)
     }

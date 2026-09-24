@@ -18,19 +18,19 @@ enum WidgetIntentOutcome: Equatable {
     case success, contentUnavailable, saveFailed
     var dialog: IntentDialog {
         switch self {
-        case .success: IntentDialog(LocalizedStringResource("Todo updated", table: "Widgets"))
-        case .contentUnavailable: IntentDialog(LocalizedStringResource("This item is unavailable. Open Petal to review the card.", table: "Widgets"))
-        case .saveFailed: IntentDialog(LocalizedStringResource("Unable to save. Please try again in Petal.", table: "Widgets"))
+        case .success: IntentDialog(LocalizedStringResource("ui.todo_updated.d1612f", table: "Widgets"))
+        case .contentUnavailable: IntentDialog(LocalizedStringResource("ui.this_item_is_unavailable_open_petal_to_review_the_card.d98a23", table: "Widgets"))
+        case .saveFailed: IntentDialog(LocalizedStringResource("ui.unable_to_save_please_try_again_in_petal.1e4a38", table: "Widgets"))
         }
     }
 }
 
 /// UUID identity never depends on a localized label or on stale timeline text.
 struct TodoLineEntity: AppEntity {
-    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: LocalizedStringResource("Todo", table: "Widgets"))
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: LocalizedStringResource("ui.todo.4ff402", table: "Widgets"))
     static let defaultQuery = TodoLineQuery()
     let id: UUID
-    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: LocalizedStringResource("Todo", table: "Widgets")) }
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: LocalizedStringResource("ui.todo.4ff402", table: "Widgets")) }
 }
 
 struct TodoLineQuery: EntityQuery {
@@ -41,10 +41,10 @@ struct TodoLineQuery: EntityQuery {
 }
 
 struct ToggleTodoIntent: AppIntent {
-    static let title = LocalizedStringResource("Change Todo Completion", table: "Widgets")
+    static let title = LocalizedStringResource("ui.change_todo_completion.b0f064", table: "Widgets")
     static let isDiscoverable = false
-    @Parameter(title: LocalizedStringResource("Todo", table: "Widgets")) var line: TodoLineEntity
-    @Parameter(title: LocalizedStringResource("Completed", table: "Widgets")) var completed: Bool
+    @Parameter(title: LocalizedStringResource("ui.todo.4ff402", table: "Widgets")) var line: TodoLineEntity
+    @Parameter(title: LocalizedStringResource("ui.completed.22a970", table: "Widgets")) var completed: Bool
 
     init() {}
     init(lineID: LineID, completed: Bool) {

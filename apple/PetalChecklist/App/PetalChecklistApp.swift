@@ -11,7 +11,7 @@ struct PetalChecklistApp: App {
     @State private var capture = QuickCaptureAppController()
 
     var body: some Scene {
-        Window("Petal Checklist", id: "main") { RootView(capture: capture, notificationBroker: appDelegate.notificationBroker) }
+        Window("ui.petal_checklist.d92314", id: "main") { RootView(capture: capture, notificationBroker: appDelegate.notificationBroker) }
             .defaultSize(width: 960, height: 640)
     }
 }

@@ -152,11 +152,11 @@ final class AppRouterTests: XCTestCase {
         repository.failNextCard = true
         await router.createCard()
         XCTAssertNotNil(router.errorMessage)
-        let created = try await base.cards(scope: .all).filter { $0.title == String(localized: "Untitled Card") }
+        let created = try await base.cards(scope: .all).filter { !$0.isInbox }
         XCTAssertEqual(created.count, 1)
         await router.retryError()
         XCTAssertEqual(router.selectedCardID, created.first?.id)
-        let after = try await base.cards(scope: .all).filter { $0.title == String(localized: "Untitled Card") }
+        let after = try await base.cards(scope: .all).filter { !$0.isInbox }
         XCTAssertEqual(after.count, 1)
     }
 

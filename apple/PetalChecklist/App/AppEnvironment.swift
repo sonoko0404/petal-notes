@@ -8,6 +8,8 @@ import WidgetKit
 
 struct AppEnvironment {
     let repository: any PetalSyncRepository & PetalTransferRepository
+    var onboardingPending = false
+    var completeOnboarding: () async throws -> Void = {}
     static var isTestRun: Bool {
         ProcessInfo.processInfo.arguments.contains("-ui-testing")
             || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -25,6 +27,12 @@ struct AppEnvironment {
             store = try ModelContainerFactory.makeShared(appGroupID: groupID ?? "")
         }
         let setup = SwiftDataPetalRepository(container: store)
+        let onboardingPending: Bool
+        if !testing || arguments.contains("-ui-onboarding") {
+            onboardingPending = try await setup.bootstrapOnboarding(seed: OnboardingSeed(
+                inbox: String(localized: "ui.inbox.94835e"), title: String(localized: "ui.welcome_to_petal.830c7d"), todos: [
+                    String(localized: "ui.add_a_widget.f49140"), String(localized: "ui.complete_a_todo.e12126"), String(localized: "ui.create_a_card.345ca6")]), now: .now)
+        } else { onboardingPending = false }
         try await setup.bootstrap(now: .now)
         if testing { try await setup.setSyncEnabled(false) }
         if testing && arguments.contains("-ui-sample-cards") {
@@ -40,7 +48,8 @@ struct AppEnvironment {
         if testing && arguments.contains("-ui-fail-next-save") {
             return AppEnvironment(repository: SwiftDataPetalRepository(container: store, faultInjector: .failOnceBeforeSave))
         }
-        return AppEnvironment(repository: setup)
+        return AppEnvironment(repository: setup, onboardingPending: onboardingPending,
+            completeOnboarding: { try await setup.completeOnboarding() })
     }
 }
 

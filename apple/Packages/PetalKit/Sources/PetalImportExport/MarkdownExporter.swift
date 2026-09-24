@@ -6,7 +6,7 @@ import Darwin
 public enum MarkdownExporter {
     public static func documents(_ snapshot: TransferSnapshot, languageCode: String = "en") throws -> [String: Data] {
         try snapshot.validate()
-        let chinese = languageCode.hasPrefix("zh")
+        func localized(_ key: String) -> String { PetalStrings.text(key, languageCode: languageCode) }
         var result: [String: Data] = [:]
         var used = Set<String>()
         for card in snapshot.cards.sorted(by: { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString }) {
@@ -30,12 +30,12 @@ public enum MarkdownExporter {
                     switch reminder.rule {
                     case .oneTime(let date): value = ISO8601DateFormatter().string(from: date)
                     case .daily(let minute, let zone):
-                        value = "\(chinese ? "每天" : "Daily") \(String(format: "%02d:%02d", minute / 60, minute % 60)) (\(zone))"
+                        value = "\(localized("ui.export_daily")) \(String(format: "%02d:%02d", minute / 60, minute % 60)) (\(zone))"
                     }
-                    text += "\n    \(chinese ? "提醒：" : "Reminder: ")\(value)"
-                    if !reminder.isEnabled { text += chinese ? "（已停用）" : " (disabled)" }
+                    text += "\n    \(localized("ui.export_reminder"))\(value)"
+                    if !reminder.isEnabled { text += localized("ui.export_disabled") }
                     if let snooze = reminder.snoozedUntil {
-                        text += " · \(chinese ? "稍后提醒：" : "Snoozed until: ")\(ISO8601DateFormatter().string(from: snooze))"
+                        text += " · \(localized("ui.export_snooze"))\(ISO8601DateFormatter().string(from: snooze))"
                     }
                 }
                 parts.append(text)

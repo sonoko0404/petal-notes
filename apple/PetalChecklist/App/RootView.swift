@@ -7,6 +7,7 @@ import PetalActions
 import PetalSync
 import WidgetKit
 import PetalImportExport
+import PetalDesignSystem
 
 struct RootView: View {
     let capture: QuickCaptureAppController
@@ -19,6 +20,11 @@ struct RootView: View {
     @State private var reminders: AppReminderRuntime?
     @State private var syncSettings: SyncSettingsModel?
     @State private var dataTransfer: DataTransferModel?
+    @State private var resetModel: ResetSettingsModel?
+    @State private var onboardingPending = false
+    @State private var finishOnboarding: () async throws -> Void = {}
+    @AppStorage("appearance.theme") private var theme = "cream"
+    @AppStorage("appearance.typeface") private var typeface = "standard"
     @AppStorage("notificationSoundEnabled", store: ReminderSoundPreference.defaults) private var notificationSoundEnabled = false
 
     private struct PendingInboxMove {
@@ -32,14 +38,14 @@ struct RootView: View {
             if let router {
                 VStack(spacing: 0) {
                     if reminders?.state == .schedulingFailed || reminders?.actionFailed == true {
-                        Text("Reminder scheduling failed. Open the reminder and save again to retry.")
+                        Text("ui.reminder_scheduling_failed_open_the_reminder_and_save_a.cb2cc5")
                             .foregroundStyle(.red).padding(8)
                     }
                     if let error = router.errorMessage {
                         HStack {
                             Text(error)
                                 .accessibilityLabel(Text(error))
-                            Button("Retry") { Task { await router.retryError() } }
+                            Button("ui.retry.942087") { Task { await router.retryError() } }
                                 .accessibilityIdentifier("app.retry")
                         }
                         .padding(8)
@@ -57,7 +63,7 @@ struct RootView: View {
                             .accessibilityIdentifier("scope.\(scope.rawValue)")
                         }
                     }
-                    .navigationTitle("Petal Checklist")
+                    .navigationTitle("ui.petal_checklist.d92314")
                     .frame(minWidth: 160)
                     } content: {
                     CardLibraryView(model: router.library, selectedCardID: router.selectedCardID,
@@ -67,14 +73,22 @@ struct RootView: View {
                         .frame(minWidth: 220)
                     } detail: {
                     if router.scope == .settings {
-                        VStack(alignment: .leading) {
-                            Text("Settings").font(.title)
-                            Text("Local cards are available offline.")
-                            if let syncSettings { SyncSettingsView(model: syncSettings) }
+                        ScrollView { VStack(alignment: .leading, spacing: 16) {
+                            Text("ui.settings.74a883").font(.title)
+                            Text("ui.local_cards_are_available_offline.f1e926")
+                            Picker("ui.theme.efb52e", selection: $theme) {
+                                Text("ui.cream.d5398b").tag("cream"); Text("ui.mint.ced97c").tag("mint"); Text("ui.sakura.95c0d6").tag("sakura")
+                                Text("ui.sky.b72804").tag("sky"); Text("ui.paper.35045e").tag("paper")
+                            }
+                            Picker("ui.typeface.3a8c10", selection: $typeface) {
+                                Text("ui.system.6725e7").tag("standard"); Text("ui.rounded.0a62cd").tag("rounded"); Text("ui.serif.1b5e74").tag("serif")
+                            }
+                            if let syncSettings { SyncSettingsView(model: syncSettings, resetModel: resetModel) }
                             if let dataTransfer { DataTransferView(model: dataTransfer) }
-                            Toggle("Notification Sound", isOn: $notificationSoundEnabled)
+                            SupportSettingsView()
+                            Toggle("ui.notification_sound.4478aa", isOn: $notificationSoundEnabled)
                                 .onChange(of: notificationSoundEnabled) { _, _ in Task { await reminders?.reconcile(.localMutation) } }
-                            Picker("Quick Capture Shortcut", selection: Binding(
+                            Picker("ui.quick_capture_shortcut.6aa8d7", selection: Binding(
                                 get: { capture.hotKey.selection },
                                 set: { capture.hotKey.configure($0) }
                             )) {
@@ -87,7 +101,7 @@ struct RootView: View {
                             .accessibilityIdentifier("settings.quickCaptureShortcut")
                             .disabled(recordingShortcut)
                             if recordingShortcut {
-                                Text("Press a shortcut with Command, Option, or Control")
+                                Text("ui.press_a_shortcut_with_command_option_or_control.3121f1")
                                 HotKeyRecorderView(onCapture: { choice in
                                     capture.hotKey.configure(choice)
                                     recordingShortcut = false
@@ -96,12 +110,12 @@ struct RootView: View {
                                     recordingShortcut = false
                                 })
                                 .frame(width: 250, height: 28)
-                                Button("Cancel Recording") {
+                                Button("ui.cancel_recording.36bf97") {
                                     capture.hotKey.cancelRecording()
                                     recordingShortcut = false
                                 }
                             } else {
-                                Button("Record Shortcut") {
+                                Button("ui.record_shortcut.29eed5") {
                                     capture.hotKey.beginRecording()
                                     recordingShortcut = true
                                 }
@@ -112,7 +126,7 @@ struct RootView: View {
                                     .accessibilityIdentifier("settings.hotKeyError")
                             }
                         }
-                        .padding()
+                        .padding() }
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .onDisappear {
                             if recordingShortcut {
@@ -127,13 +141,13 @@ struct RootView: View {
                                        onRestore: { Task { await router.restore(editor.cardID) } })
                             .disabled(router.isTransitioning)
                     } else {
-                        ContentUnavailableView("Select a Card", systemImage: "checklist")
+                        ContentUnavailableView("ui.select_a_card.e35278", systemImage: "checklist")
                     }
                     }
                 }
                 .background(WindowCloseGuard(flush: { await router.prepareClose() },
                                              closeRequestDidEnd: { router.closeRequestDidEnd() }))
-                .confirmationDialog("Choose New Inbox", isPresented: Binding(
+                .confirmationDialog("ui.choose_new_inbox.bba42b", isPresented: Binding(
                     get: { pendingInboxMove != nil },
                     set: { if !$0 { pendingInboxMove = nil } }
                 ), titleVisibility: .visible) {
@@ -148,16 +162,21 @@ struct RootView: View {
                     }
                 }
             } else if let startupError {
-                ContentUnavailableView("Unable to Open Cards", systemImage: "exclamationmark.triangle",
+                ContentUnavailableView("ui.unable_to_open_cards.a94fd5", systemImage: "exclamationmark.triangle",
                                        description: Text(startupError))
             } else {
-                ProgressView("Opening Cards")
+                ProgressView("ui.opening_cards.33b61d")
             }
+        }
+        .sheet(isPresented: $onboardingPending) {
+            OnboardingView { try await finishOnboarding(); onboardingPending = false }
         }
         .task {
             guard router == nil else { return }
             do {
                 let opened = try await AppEnvironment.make()
+                onboardingPending = opened.onboardingPending
+                finishOnboarding = opened.completeOnboarding
                 let model = CardLibraryModel(repository: opened.repository)
                 try await model.show(.inbox)
                 let refresh = AppStoreRefreshAdapter()
@@ -173,6 +192,20 @@ struct RootView: View {
                 syncSettings = settings
                 await settings.startObserving()
                 router = navigation
+                resetModel = ResetSettingsModel(productName: String(localized: "ui.petal_checklist.d92314"), defaults: .standard,
+                    reset: {
+                        guard await navigation.prepareClose() else { throw EditorError.pendingSaveFailed }
+                        defer { navigation.closeRequestDidEnd() }
+                        return try await shared.reset.reset(now: .now).sideEffectsSucceeded
+                    }, retryEffects: {
+                        try await opened.repository.finishResetCleanup()
+                        try await shared.lifecycle.handle(.resetCompleted)
+                        await settings.sync(.userRequested)
+                    }, onFinished: {
+                        settings.isResetRequested = false
+                        await navigation.show(.inbox)
+                        if let inbox = navigation.library.cards.first(where: \.isInbox) { await navigation.select(inbox.id) }
+                    })
                 dataTransfer = DataTransferModel(repository: opened.repository,
                     settings: { TransferSettings(notificationSoundEnabled: ReminderSoundPreference.isEnabled) },
                     applySettings: { ReminderSoundPreference.defaults?.set($0.notificationSoundEnabled, forKey: "notificationSoundEnabled") },
@@ -191,7 +224,7 @@ struct RootView: View {
                 await runtime.start(broker: notificationBroker)
                 await settings.sync(.launch)
             } catch {
-                startupError = error.localizedDescription
+                startupError = PetalErrorCopy.message(error)
             }
         }
         .onOpenURL { url in Task { await PetalNavigationRequests.shared.open(url) } }

@@ -10,7 +10,7 @@ struct HotKeyChoice: Codable, Hashable, Identifiable {
     var id: String { "\(keyCode)-\(modifiers)" }
     var isOff: Bool { keyCode == 0 && modifiers == 0 }
     var title: String {
-        guard !isOff else { return String(localized: "Off") }
+        guard !isOff else { return String(localized: "ui.off.ca7981") }
         var prefix = ""
         if modifiers & UInt32(controlKey) != 0 { prefix += "⌃" }
         if modifiers & UInt32(optionKey) != 0 { prefix += "⌥" }
@@ -49,7 +49,7 @@ struct HotKeyChoice: Codable, Hashable, Identifiable {
     static let optionCommandN = Self(keyCode: UInt32(kVK_ANSI_N), modifiers: UInt32(optionKey | cmdKey), title: "⌥⌘N")
     static let optionCommandM = Self(keyCode: UInt32(kVK_ANSI_M), modifiers: UInt32(optionKey | cmdKey), title: "⌥⌘M")
     static let shiftCommandN = Self(keyCode: UInt32(kVK_ANSI_N), modifiers: UInt32(shiftKey | cmdKey), title: "⇧⌘N")
-    static let off = Self(keyCode: 0, modifiers: 0, title: String(localized: "Off"))
+    static let off = Self(keyCode: 0, modifiers: 0, title: String(localized: "ui.off.ca7981"))
     static let allCases = [optionCommandN, optionCommandM, shiftCommandN, off]
 
     static func recorded(keyCode: UInt16, flags: NSEvent.ModifierFlags, characters: String) -> Self? {
@@ -69,7 +69,7 @@ struct HotKeyChoice: Codable, Hashable, Identifiable {
 enum HotKeyRegistrationError: LocalizedError {
     case conflict
     var errorDescription: String? {
-        String(localized: "This shortcut is unavailable. Choose another shortcut or turn it off.")
+        String(localized: "ui.this_shortcut_is_unavailable_choose_another_shortcut_or.d06949")
     }
 }
 

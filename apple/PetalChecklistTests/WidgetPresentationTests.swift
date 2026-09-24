@@ -14,7 +14,7 @@ final class WidgetPresentationTests: XCTestCase {
         let entry = await provider.entry(configuration: intent, family: .systemMedium, isPreview: true,
             now: Date(timeIntervalSince1970: 1_800_000_000), calendar: Calendar(identifier: .gregorian))
         XCTAssertNotEqual(entry.snapshot.cardID.rawValue, intent.card?.id)
-        XCTAssertEqual(entry.snapshot.title, "Petal")
+        XCTAssertTrue(["Petal", "花瓣清单"].contains(entry.snapshot.title))
         XCTAssertEqual(entry.snapshot.visibleLines.count, 3)
         XCTAssertEqual(entry.snapshot.cardState, .normal)
     }

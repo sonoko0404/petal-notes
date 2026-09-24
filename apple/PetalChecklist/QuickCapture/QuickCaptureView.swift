@@ -20,7 +20,7 @@ struct QuickCaptureView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Quick Capture").font(.headline)
+            Text("ui.quick_capture.3fb707").font(.headline)
             CaptureTextEditor(model: model, onSubmit: onSubmit, onCancel: onCancel,
                               onFirstResponder: onFirstResponder)
                 .frame(height: 110)
@@ -39,12 +39,12 @@ struct QuickCaptureView: View {
                     .accessibilityIdentifier("quickCapture.error")
             }
             HStack {
-                Text("Shift+Return for a new line")
+                Text("ui.shift_return_for_a_new_line.813ed5")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Cancel", action: onCancel)
+                Button("ui.cancel.19766e", action: onCancel)
                     .accessibilityIdentifier("quickCapture.cancel")
-                Button("Add", action: onSubmit)
+                Button("ui.add.9fd728", action: onSubmit)
                     .disabled(model.isSubmitting || model.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("quickCapture.submit")
             }

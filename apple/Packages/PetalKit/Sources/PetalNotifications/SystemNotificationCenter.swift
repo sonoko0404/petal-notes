@@ -49,9 +49,9 @@ public actor SystemNotificationCenter: NotificationCenterAdapter {
         center.removeDeliveredNotifications(withIdentifiers: delivered)
     }
     public nonisolated static func actions() -> [UNNotificationAction] {
-        [UNNotificationAction(identifier: "complete", title: String(localized: "Complete", bundle: .module)),
-         UNNotificationAction(identifier: "snooze-5m", title: String(localized: "Snooze 5 Minutes", bundle: .module)),
-         UNNotificationAction(identifier: "open-card", title: String(localized: "Open Card", bundle: .module), options: [.foreground])]
+        [UNNotificationAction(identifier: "complete", title: String(localized: "ui.complete.143b27", bundle: .module)),
+         UNNotificationAction(identifier: "snooze-5m", title: String(localized: "ui.snooze_5_minutes.2bd176", bundle: .module)),
+         UNNotificationAction(identifier: "open-card", title: String(localized: "ui.open_card.32bf59", bundle: .module), options: [.foreground])]
     }
     public nonisolated static func makeRequest(_ request: ReminderRequest) throws -> UNNotificationRequest {
         let content = UNMutableNotificationContent()

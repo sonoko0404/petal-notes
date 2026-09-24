@@ -17,12 +17,12 @@ struct CardLineRow: View {
                         catch { onError(error) } }
                 } label: { Image(systemName: line.isCompleted ? "checkmark.circle.fill" : "circle") }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(line.isCompleted ? Text("Mark Incomplete") : Text("Complete Todo"))
+                    .accessibilityLabel(line.isCompleted ? Text("ui.mark_incomplete.331426") : Text("ui.complete_todo.70bfc6"))
                     .accessibilityIdentifier(line.isCompleted ? "line.incomplete" : "line.complete")
             } else {
                 Image(systemName: "text.alignleft").accessibilityHidden(true)
             }
-            TextField(line.kind == .todo ? "Todo" : "Text", text: Binding(
+            TextField(line.kind == .todo ? String(localized: "ui.todo.4ff402") : String(localized: "ui.text.71988c"), text: Binding(
                 get: { model.unsavedText[line.id] ?? line.text },
                 set: { model.editText(lineID: line.id, text: $0) }
             ))
@@ -40,19 +40,19 @@ struct CardLineRow: View {
             }
             Menu {
                 if line.kind == .todo {
-                    Button("Reminder") { editingReminder = true }
+                    Button("ui.reminder.31757b") { editingReminder = true }
                         .accessibilityIdentifier("line.reminder")
                 }
-                Button(line.kind == .todo ? "Convert to Text" : "Convert to Todo") {
+                Button(line.kind == .todo ? String(localized: "ui.convert_to_text.90a386") : String(localized: "ui.convert_to_todo.50fc20")) {
                     Task { do { try await model.convert(lineID: line.id, to: line.kind == .todo ? .text : .todo) }
                         catch { onError(error) } }
                 }
                 .accessibilityIdentifier(line.kind == .todo ? "line.convertToText" : "line.convertToTodo")
-                Button("Move Up") { move(.up) }.accessibilityIdentifier("line.moveUp")
-                Button("Move Down") { move(.down) }.accessibilityIdentifier("line.moveDown")
+                Button("ui.move_up.135962") { move(.up) }.accessibilityIdentifier("line.moveUp")
+                Button("ui.move_down.b58330") { move(.down) }.accessibilityIdentifier("line.moveDown")
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .accessibilityLabel(Text("Line Actions"))
+                    .accessibilityLabel(Text("ui.line_actions.336265"))
             }
             .accessibilityIdentifier(line.kind == .todo ? "line.kind.todo" : "line.kind.text")
         }

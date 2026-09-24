@@ -6,10 +6,10 @@ enum DeepLinkError: LocalizedError {
     case invalidLink, unavailable, cannotOpen, captureInProgress
     var errorDescription: String? {
         switch self {
-        case .invalidLink: String(localized: "This Petal link is invalid.")
-        case .unavailable: String(localized: "This card is unavailable. Choose a card in Petal.")
-        case .cannotOpen: String(localized: "Unable to open this card. Your draft has been kept. Please try again.")
-        case .captureInProgress: String(localized: "Finish or cancel the current quick add before opening another card.")
+        case .invalidLink: String(localized: "ui.this_petal_link_is_invalid.9ee568")
+        case .unavailable: String(localized: "ui.this_card_is_unavailable_choose_a_card_in_petal.320ac9")
+        case .cannotOpen: String(localized: "ui.unable_to_open_this_card_your_draft_has_been_kept_pleas.6a8ec4")
+        case .captureInProgress: String(localized: "ui.finish_or_cancel_the_current_quick_add_before_opening_a.78682c")
         }
     }
 }

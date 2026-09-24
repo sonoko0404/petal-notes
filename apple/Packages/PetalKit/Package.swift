@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "PetalKit",
+    defaultLocalization: "en",
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "PetalCore", targets: ["PetalCore"]),
@@ -15,7 +16,7 @@ let package = Package(
         .library(name: "PetalTestSupport", targets: ["PetalTestSupport"]),
     ],
     targets: [
-        .target(name: "PetalCore"),
+        .target(name: "PetalCore", resources: [.process("Resources")]),
         .target(name: "PetalPersistence", dependencies: ["PetalCore"]),
         .target(name: "PetalSync", dependencies: ["PetalCore", "PetalPersistence"]),
         .target(name: "PetalNotifications", dependencies: ["PetalCore"], resources: [.process("Resources")]),

@@ -47,7 +47,7 @@ final class DataTransferModel {
                 try await SecurityScopedTransferURLs.withAccess([source, backup]) {
                     let data = try await Task.detached { try Data(contentsOf: source) }.value
                     _ = try await service.importWindows(data, backupURL: backup, settings: settings(),
-                        timeZone: .current, fallbackTitle: String(localized: "Imported reminder"), now: .now)
+                        timeZone: .current, fallbackTitle: String(localized: "ui.imported_reminder.a34a16"), now: .now)
                 }
             case .backup(let url):
                 try await SecurityScopedTransferURLs.withAccess([url]) { try await service.exportBackup(to: url, settings: settings()) }
@@ -82,23 +82,23 @@ struct DataTransferView: View {
     @Bindable var model: DataTransferModel
     @State private var restoreURL: URL?
     var body: some View {
-        GroupBox("Data Transfer") {
+        GroupBox("ui.data_transfer.786b69") {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Daily reminders use this Mac’s time zone at import. A JSON backup is saved before importing.")
+                Text("ui.daily_reminders_use_this_mac_s_time_zone_at_import_a_js.773c69")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
-                    Button("Import Windows Notes…") { importWindows() }.accessibilityIdentifier("transfer.importWindows")
-                    Button("Export JSON Backup…") {
-                        if let url = saveJSON(title: String(localized: "Export JSON Backup…"), name: "Petal Backup.json") {
+                    Button("ui.import_windows_notes.904fb3") { importWindows() }.accessibilityIdentifier("transfer.importWindows")
+                    Button("ui.export_json_backup.71df65") {
+                        if let url = saveJSON(title: String(localized: "ui.export_json_backup.71df65"), name: String(localized: "ui.petal_backup_json.467893")) {
                             Task { await model.run(.backup(url)) }
                         }
                     }.accessibilityIdentifier("transfer.exportJSON")
                 }
                 HStack {
-                    Button("Replace from Backup…") { restoreURL = openJSON() }.accessibilityIdentifier("transfer.restoreJSON")
-                    Button("Export Markdown Folder…") {
+                    Button("ui.replace_from_backup.49de35") { restoreURL = openJSON() }.accessibilityIdentifier("transfer.restoreJSON")
+                    Button("ui.export_markdown_folder.d04c7f") {
                         let panel = NSOpenPanel()
-                        panel.title = String(localized: "Export Markdown Folder…")
+                        panel.title = String(localized: "ui.export_markdown_folder.d04c7f")
                         panel.canChooseDirectories = true
                         panel.canChooseFiles = false
                         panel.allowsMultipleSelection = false
@@ -106,31 +106,31 @@ struct DataTransferView: View {
                         if panel.runModal() == .OK, let url = panel.url { Task { await model.run(.markdown(url)) } }
                     }.accessibilityIdentifier("transfer.exportMarkdown")
                 }
-                Text("Markdown creates a new Petal Markdown Export folder inside the directory you choose.")
+                Text("ui.markdown_creates_a_new_petal_markdown_export_folder_ins.47f673")
                     .font(.caption).foregroundStyle(.secondary)
-                if model.isRunning { ProgressView("Transferring Data…").accessibilityIdentifier("transfer.progress") }
+                if model.isRunning { ProgressView("ui.transferring_data.721cf4").accessibilityIdentifier("transfer.progress") }
                 if model.failed {
-                    Text("Unable to transfer data. Check the file and destination, then retry. Markdown needs a new folder.")
+                    Text("ui.unable_to_transfer_data_check_the_file_and_destination_.631c5f")
                         .foregroundStyle(.red).accessibilityIdentifier("transfer.error")
-                    Button("Retry") { Task { await model.retry() } }.accessibilityIdentifier("transfer.retry")
+                    Button("ui.retry.942087") { Task { await model.retry() } }.accessibilityIdentifier("transfer.retry")
                 }
-                if model.succeeded { Text("Transfer complete.").accessibilityIdentifier("transfer.success") }
+                if model.succeeded { Text("ui.transfer_complete.a4a45d").accessibilityIdentifier("transfer.success") }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(model.isRunning)
         }
-        .confirmationDialog("Replace Current Data?", isPresented: Binding(get: { restoreURL != nil }, set: { if !$0 { restoreURL = nil } }), titleVisibility: .visible) {
-            Button("Replace Data", role: .destructive) {
+        .confirmationDialog("ui.replace_current_data.7cef1a", isPresented: Binding(get: { restoreURL != nil }, set: { if !$0 { restoreURL = nil } }), titleVisibility: .visible) {
+            Button("ui.replace_data.6c8f89", role: .destructive) {
                 if let url = restoreURL { Task { await model.run(.restore(url)) } }
                 restoreURL = nil
             }
         } message: {
-            Text("This replaces all cards, lines, and reminder sound settings with the backup. Changes sync to iCloud when enabled. Export a backup first if you want to keep the current data.")
+            Text("ui.this_replaces_all_cards_lines_and_reminder_sound_settin.9dd1e0")
         }
     }
 
     private func importWindows() {
-        guard let source = openJSON(), let backup = saveJSON(title: String(localized: "Save Backup Before Import"), name: "Petal Before Import.json") else { return }
+        guard let source = openJSON(), let backup = saveJSON(title: String(localized: "ui.save_backup_before_import.fa9d80"), name: String(localized: "ui.petal_before_import_json.e40d37")) else { return }
         Task { await model.run(.windows(source: source, backup: backup)) }
     }
     private func openJSON() -> URL? {

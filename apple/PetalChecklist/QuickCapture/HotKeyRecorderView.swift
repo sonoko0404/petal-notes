@@ -10,7 +10,7 @@ struct HotKeyRecorderView: NSViewRepresentable {
         view.onCapture = onCapture
         view.onCancel = onCancel
         view.setAccessibilityIdentifier("settings.hotKeyRecorder")
-        view.setAccessibilityLabel(String(localized: "Press a shortcut with Command, Option, or Control"))
+        view.setAccessibilityLabel(String(localized: "ui.press_a_shortcut_with_command_option_or_control.3121f1"))
         return view
     }
 

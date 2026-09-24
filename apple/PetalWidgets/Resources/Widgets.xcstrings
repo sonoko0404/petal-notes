@@ -1,17 +1,178 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "Card": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Card"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"卡片"}}}},
-    "Open Card": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Open Card"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"打开卡片"}}}},
-    "Quick Add to Card": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Quick Add to Card"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"快速新增到卡片"}}}},
-    "Toggle completion": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Toggle completion"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换完成状态"}}}},
-    "Text note": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Text note"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"文字笔记"}}}},
-    "Todo updated": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo updated"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"待办已更新"}}}},
-    "This item is unavailable. Open Petal to review the card.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"This item is unavailable. Open Petal to review the card."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此条目不可用。请打开花瓣清单查看卡片。"}}}},
-    "Unable to save. Please try again in Petal.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Unable to save. Please try again in Petal."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法保存。请在花瓣清单中重试。"}}}},
-    "Change Todo Completion": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Change Todo Completion"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"更改待办完成状态"}}}},
-    "Todo": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"待办"}}}},
-    "A little space to plan": {
+    "ui.card.be3702": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片"
+          }
+        }
+      }
+    },
+    "ui.open_card.32bf59": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Card"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开卡片"
+          }
+        }
+      }
+    },
+    "ui.quick_add_to_card.435da3": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Add to Card"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速新增到卡片"
+          }
+        }
+      }
+    },
+    "ui.toggle_completion.8b0aaf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle completion"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换完成状态"
+          }
+        }
+      }
+    },
+    "ui.text_note.6fb03f": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text note"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字笔记"
+          }
+        }
+      }
+    },
+    "ui.todo_updated.d1612f": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo updated"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待办已更新"
+          }
+        }
+      }
+    },
+    "ui.this_item_is_unavailable_open_petal_to_review_the_card.d98a23": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This item is unavailable. Open Petal to review the card."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此条目不可用。请打开花瓣清单查看卡片。"
+          }
+        }
+      }
+    },
+    "ui.unable_to_save_please_try_again_in_petal.1e4a38": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to save. Please try again in Petal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存。请在花瓣清单中重试。"
+          }
+        }
+      }
+    },
+    "ui.change_todo_completion.b0f064": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change Todo Completion"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改待办完成状态"
+          }
+        }
+      }
+    },
+    "ui.todo.4ff402": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待办"
+          }
+        }
+      }
+    },
+    "ui.a_little_space_to_plan.f70d72": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -27,7 +188,8 @@
         }
       }
     },
-    "Make time for what matters": {
+    "ui.make_time_for_what_matters.ab7cd4": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -43,7 +205,8 @@
         }
       }
     },
-    "One thing at a time": {
+    "ui.one_thing_at_a_time.59d36a": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -59,7 +222,8 @@
         }
       }
     },
-    "Unable to refresh": {
+    "ui.unable_to_refresh.e8a1f7": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -75,7 +239,8 @@
         }
       }
     },
-    "Completed": {
+    "ui.completed.22a970": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -91,7 +256,8 @@
         }
       }
     },
-    "Incomplete": {
+    "ui.incomplete.75f33c": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -107,23 +273,43 @@
         }
       }
     },
-    "%lld more": {
+    "ui.more_items": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld more"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more items"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "还有 %lld 项"
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "还有 %lld 项"
+                }
+              }
+            }
           }
         }
       }
     },
-    "No items. Add some in Petal.": {
+    "ui.no_items_add_some_in_petal.4016bc": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -139,7 +325,8 @@
         }
       }
     },
-    "This card is archived. Edit the widget to choose another card.": {
+    "ui.this_card_is_archived_edit_the_widget_to_choose_another.9bae01": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -155,7 +342,8 @@
         }
       }
     },
-    "This card is in Trash. Restore it in Petal or edit the widget.": {
+    "ui.this_card_is_in_trash_restore_it_in_petal_or_edit_the_w.300709": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -171,7 +359,8 @@
         }
       }
     },
-    "Choose a card by editing this widget.": {
+    "ui.choose_a_card_by_editing_this_widget.0fbf4c": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -187,7 +376,8 @@
         }
       }
     },
-    "Unable to read this card. Open Petal to check your local data.": {
+    "ui.unable_to_read_this_card_open_petal_to_check_your_local.edd35b": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -203,7 +393,8 @@
         }
       }
     },
-    "Syncing": {
+    "ui.syncing.5c8b9e": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -219,7 +410,8 @@
         }
       }
     },
-    "Offline": {
+    "ui.offline.a17947": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -235,7 +427,8 @@
         }
       }
     },
-    "Sync failed": {
+    "ui.sync_failed.abf3e8": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -247,6 +440,329 @@
           "stringUnit": {
             "state": "translated",
             "value": "同步失败"
+          }
+        }
+      }
+    },
+    "ui.petal_checklist.d92314": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petal Checklist"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "花瓣清单"
+          }
+        }
+      }
+    },
+    "ui.theme.efb52e": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题"
+          }
+        }
+      }
+    },
+    "ui.cream.d5398b": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cream"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "奶油"
+          }
+        }
+      }
+    },
+    "ui.mint.ced97c": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mint"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "薄荷"
+          }
+        }
+      }
+    },
+    "ui.sakura.95c0d6": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "樱花"
+          }
+        }
+      }
+    },
+    "ui.sky.b72804": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sky"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天空"
+          }
+        }
+      }
+    },
+    "ui.paper.35045e": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paper"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "极简"
+          }
+        }
+      }
+    },
+    "ui.typeface.3a8c10": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typeface"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体"
+          }
+        }
+      }
+    },
+    "ui.system.6725e7": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统"
+          }
+        }
+      }
+    },
+    "ui.rounded.0a62cd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rounded"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆体"
+          }
+        }
+      }
+    },
+    "ui.serif.1b5e74": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "衬线体"
+          }
+        }
+      }
+    },
+    "ui.material.616cb2": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Material"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "材质"
+          }
+        }
+      }
+    },
+    "ui.solid.b8b311": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solid"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实色"
+          }
+        }
+      }
+    },
+    "ui.translucent.fa5668": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translucent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "半透明"
+          }
+        }
+      }
+    },
+    "ui.unavailable_card.bb3b4a": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable card"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片不可用"
+          }
+        }
+      }
+    },
+    "ui.checklist.734603": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checklist"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清单"
+          }
+        }
+      }
+    },
+    "ui.choose_one_card_and_its_appearance.d346f6": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose one card and its appearance."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择一张卡片及其外观。"
+          }
+        }
+      }
+    },
+    "ui.one_card_always_close_at_hand.8585f6": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One card, always close at hand."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一张卡片，随时可见。"
+          }
+        }
+      }
+    },
+    "ui.petal.b83a3f": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "花瓣清单"
           }
         }
       }

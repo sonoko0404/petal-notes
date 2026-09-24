@@ -1,6 +1,7 @@
 import SwiftUI
 import WidgetKit
 import PetalCore
+import PetalDesignSystem
 
 enum WidgetRowControl {
     case todo(ToggleTodoIntent), link(URL)
@@ -15,6 +16,8 @@ struct ChecklistWidgetView: View {
     let entry: ChecklistEntry
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.widgetRenderingMode) private var renderingMode
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         GeometryReader { geometry in
@@ -23,27 +26,27 @@ struct ChecklistWidgetView: View {
                     Button(intent: OpenCardIntent(cardID: entry.snapshot.cardID)) {
                         HStack(spacing: 6) {
                             Image(systemName: "leaf").accessibilityHidden(true)
-                            Text(entry.snapshot.title.isEmpty ? "Petal" : entry.snapshot.title)
+                            Text(entry.snapshot.title.isEmpty ? String(localized: "ui.petal.b83a3f", table: "Widgets") : entry.snapshot.title)
                                 .font(.headline).lineLimit(1).truncationMode(.tail)
                             Spacer(minLength: 0)
                         }
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(Text("Open Card", tableName: "Widgets"))
+                    .accessibilityLabel(Text("ui.open_card.32bf59", tableName: "Widgets"))
                     .accessibilityValue(Text(entry.snapshot.title))
                     .disabled(entry.snapshot.cardState == .unavailable)
                     Spacer(minLength: 0)
                     if let badge = entry.snapshot.syncBadge { badgeView(badge) }
                     if entry.snapshot.cardState == .persistenceError {
                         Image(systemName: "exclamationmark.triangle")
-                            .accessibilityLabel(Text("Unable to refresh", tableName: "Widgets"))
+                            .accessibilityLabel(Text("ui.unable_to_refresh.e8a1f7", tableName: "Widgets"))
                     }
                     Button(intent: QuickAddIntent(cardID: entry.snapshot.cardID)) {
                         Image(systemName: "plus").frame(width: 44, height: 44).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(Text("Quick Add to Card", tableName: "Widgets"))
+                    .accessibilityLabel(Text("ui.quick_add_to_card.435da3", tableName: "Widgets"))
                     .accessibilityValue(Text(entry.snapshot.title))
                     .disabled(entry.snapshot.cardState != .normal && entry.snapshot.cardState != .empty && entry.snapshot.cardState != .persistenceError)
                 }
@@ -58,13 +61,13 @@ struct ChecklistWidgetView: View {
                         }
                         if entry.snapshot.hiddenCount > 0 {
                             Link(destination: PetalDeepLink.card(entry.snapshot.cardID).url) {
-                                Text("\(entry.snapshot.hiddenCount) more", tableName: "Widgets")
+                                Text(String.localizedStringWithFormat(String(localized: "ui.more_items", table: "Widgets"), entry.snapshot.hiddenCount))
                                     .font(.caption).lineLimit(1)
                                     .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .accessibilityHint(Text("Open Card", tableName: "Widgets"))
+                            .accessibilityHint(Text("ui.open_card.32bf59", tableName: "Widgets"))
                         }
                     }
                 } else {
@@ -74,13 +77,14 @@ struct ChecklistWidgetView: View {
                     Spacer(minLength: 0)
                 }
             }
-            .font(.system(.callout, design: fontDesign))
+            .font(.system(.callout, design: PetalTypeface(rawValue: entry.typeface.rawValue)?.design ?? .default))
             .foregroundStyle(renderingMode == .vibrant ? Color.primary : foreground)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .containerBackground(for: .widget) {
-            if entry.material == .translucent {
-                Rectangle().fill(.regularMaterial).overlay(background.opacity(0.65))
+            if PetalTheme.usesTransparency(requested: entry.material == .translucent,
+                reduceTransparency: reduceTransparency, increaseContrast: contrast == .increased) {
+                Rectangle().fill(.regularMaterial).overlay(background.opacity(0.95))
             } else { background }
         }
     }
@@ -91,14 +95,14 @@ struct ChecklistWidgetView: View {
             Toggle(isOn: line.isCompleted, intent: intent) { rowLabel(line, height: height) }
                 .toggleStyle(.button).buttonStyle(.plain)
                 .accessibilityLabel(Text(line.text))
-                .accessibilityValue(Text(line.isCompleted ? "Completed" : "Incomplete", tableName: "Widgets"))
-                .accessibilityHint(Text("Toggle completion", tableName: "Widgets"))
+                .accessibilityValue(Text(line.isCompleted ? "ui.completed.22a970" : "ui.incomplete.75f33c", tableName: "Widgets"))
+                .accessibilityHint(Text("ui.toggle_completion.8b0aaf", tableName: "Widgets"))
         case .link(let url):
             Link(destination: url) { rowLabel(line, height: height) }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(line.text))
-                .accessibilityValue(Text("Text note", tableName: "Widgets"))
-                .accessibilityHint(Text("Open Card", tableName: "Widgets"))
+                .accessibilityValue(Text("ui.text_note.6fb03f", tableName: "Widgets"))
+                .accessibilityHint(Text("ui.open_card.32bf59", tableName: "Widgets"))
         }
     }
 
@@ -117,42 +121,28 @@ struct ChecklistWidgetView: View {
 
     private var stateMessage: LocalizedStringKey {
         switch entry.snapshot.cardState {
-        case .normal, .empty: "No items. Add some in Petal."
-        case .archived: "This card is archived. Edit the widget to choose another card."
-        case .trashed: "This card is in Trash. Restore it in Petal or edit the widget."
-        case .unavailable: "Choose a card by editing this widget."
-        case .persistenceError: "Unable to read this card. Open Petal to check your local data."
+        case .normal, .empty: "ui.no_items_add_some_in_petal.4016bc"
+        case .archived: "ui.this_card_is_archived_edit_the_widget_to_choose_another.9bae01"
+        case .trashed: "ui.this_card_is_in_trash_restore_it_in_petal_or_edit_the_w.300709"
+        case .unavailable: "ui.choose_a_card_by_editing_this_widget.0fbf4c"
+        case .persistenceError: "ui.unable_to_read_this_card_open_petal_to_check_your_local.edd35b"
         }
     }
 
     private func badgeView(_ badge: WidgetSyncBadge) -> some View {
         let symbol = badge == .syncing ? "arrow.triangle.2.circlepath" : badge == .offline ? "wifi.slash" : "icloud.slash"
-        let label: LocalizedStringKey = badge == .syncing ? "Syncing" : badge == .offline ? "Offline" : "Sync failed"
+        let label: LocalizedStringKey = badge == .syncing ? "ui.syncing.5c8b9e" : badge == .offline ? "ui.offline.a17947" : "ui.sync_failed.abf3e8"
         return Image(systemName: symbol).font(.caption).accessibilityLabel(Text(label, tableName: "Widgets"))
     }
 
-    private var fontDesign: Font.Design {
-        switch entry.typeface { case .standard: .default; case .rounded: .rounded; case .serif: .serif }
+    private var tokens: PetalThemeTokens {
+        PetalTheme.tokens(id: ThemeID(rawValue: entry.theme.rawValue) ?? .cream,
+            mode: renderingMode == .vibrant ? .vibrant : colorScheme == .dark ? .dark : .light)
     }
-    private var foreground: Color { colorScheme == .dark ? Color(white: 0.96) : Color(white: 0.12) }
+    private var foreground: Color { tokens.primary.color }
     private var background: Color {
         if renderingMode == .vibrant { return Color.clear }
-        if colorScheme == .dark {
-            switch entry.theme {
-            case .cream: return Color(red: 0.20, green: 0.18, blue: 0.14)
-            case .mint: return Color(red: 0.12, green: 0.20, blue: 0.17)
-            case .sakura: return Color(red: 0.23, green: 0.15, blue: 0.18)
-            case .sky: return Color(red: 0.13, green: 0.18, blue: 0.24)
-            case .paper: return Color(white: 0.16)
-            }
-        }
-        switch entry.theme {
-        case .cream: return Color(red: 0.98, green: 0.95, blue: 0.86)
-        case .mint: return Color(red: 0.86, green: 0.95, blue: 0.89)
-        case .sakura: return Color(red: 0.99, green: 0.89, blue: 0.91)
-        case .sky: return Color(red: 0.87, green: 0.94, blue: 0.99)
-        case .paper: return Color(white: 0.96)
-        }
+        return tokens.surface.color
     }
 }
 

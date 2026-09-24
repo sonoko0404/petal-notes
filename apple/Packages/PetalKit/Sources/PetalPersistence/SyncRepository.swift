@@ -43,6 +43,8 @@ public struct SyncSnapshot: Sendable {
 }
 
 struct LocalSyncMetadata: Codable {
+    // Local installation state: never included in SyncSnapshot, Cloud records, or backups.
+    var onboardingCompleted: Bool?
     var replacementPlaceholderID: UUID?
     var replacementExpectedInboxID: UUID?
     var authoritativeUserState: UserStateChange?

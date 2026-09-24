@@ -5,7 +5,7 @@ import CryptoKit
 
 public enum WindowsNotesImporter {
     public static func decode(_ data: Data, now: Date, timeZone: TimeZone,
-                              fallbackTitle: String = "Imported reminder") throws -> [ImportedCard] {
+                              fallbackTitle: String = PetalStrings.text("ui.imported_reminder.a34a16")) throws -> [ImportedCard] {
         struct Header: Decodable { let SchemaVersion: Int }
         let version = try JSONDecoder().decode(Header.self, from: data).SchemaVersion
         guard version == 1 else { throw TransferError.unsupportedVersion(version) }

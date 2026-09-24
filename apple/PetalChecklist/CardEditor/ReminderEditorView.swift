@@ -22,39 +22,40 @@ struct ReminderEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Reminder").font(.headline)
-            Toggle("Enable Reminder", isOn: $enabled)
-            Toggle("Repeat Daily", isOn: $daily)
+            Text("ui.reminder.31757b").font(.headline)
+            Text("ui.notification_permission").font(.caption)
+            Toggle("ui.enable_reminder.1be5b1", isOn: $enabled)
+            Toggle("ui.repeat_daily.fa53cc", isOn: $daily)
             if daily {
-                Text("Completing early may still allow today's reminder. Future daily reminders continue.")
+                Text("ui.completing_early_may_still_allow_today_s_reminder_futur.3aa89b")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            DatePicker("Reminder Time", selection: $date, displayedComponents: daily ? [.hourAndMinute] : [.date, .hourAndMinute])
+            DatePicker("ui.reminder_time.80381e", selection: $date, displayedComponents: daily ? [.hourAndMinute] : [.date, .hourAndMinute])
                 .accessibilityIdentifier("reminder.time")
-            if model.reminderErrors.contains(line.id) { Text("Unable to save reminder. Your input is kept.").foregroundStyle(.red) }
+            if model.reminderErrors.contains(line.id) { Text("ui.unable_to_save_reminder_your_input_is_kept.45d119").foregroundStyle(.red) }
             if let state = model.reminderStates[line.id] {
                 switch state {
                 case .permissionDenied:
-                    Text("Reminder saved. Notifications are disabled in System Settings.")
-                    Button("Open Notification Settings") { model.openNotificationSettings(lineID: line.id) }
+                    Text("ui.reminder_saved_notifications_are_disabled_in_system_set.b45158")
+                    Button("ui.open_notification_settings.7fd93e") { model.openNotificationSettings(lineID: line.id) }
                         .accessibilityIdentifier("reminder.openSettings")
                         .keyboardShortcut(",", modifiers: [.command])
-                case .permissionRequired: Text("Reminder saved. Notification permission is needed.")
-                case .schedulingFailed: Text("Reminder saved. Scheduling failed. Save again to retry.").foregroundStyle(.red)
-                case .scheduled: Text("Reminder saved.")
+                case .permissionRequired: Text("ui.reminder_saved_notification_permission_is_needed.689dd2")
+                case .schedulingFailed: Text("ui.reminder_saved_scheduling_failed_save_again_to_retry.a3cbad").foregroundStyle(.red)
+                case .scheduled: Text("ui.reminder_saved.6d29b5")
                 }
             }
             if model.settingsOpenErrors.contains(line.id) {
-                Text("Unable to open System Settings. Open Notifications in System Settings manually.").foregroundStyle(.red)
+                Text("ui.unable_to_open_system_settings_open_notifications_in_sy.b7638d").foregroundStyle(.red)
             }
             HStack {
-                Button("Close") { dismiss() }
+                Button("ui.close.7d9eb7") { dismiss() }
                 Spacer()
-                Button("Remove Reminder") {
+                Button("ui.remove_reminder.0fb9ab") {
                     model.editReminder(lineID: line.id, reminder: nil)
                     Task { _ = await model.saveReminder(lineID: line.id) }
                 }
-                Button("Save Reminder") {
+                Button("ui.save_reminder.88f5cf") {
                     updateDraft()
                     Task { _ = await model.saveReminder(lineID: line.id) }
                 }

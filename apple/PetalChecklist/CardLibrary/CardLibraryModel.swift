@@ -57,7 +57,7 @@ final class CardLibraryModel {
         let generation = searchGeneration
         do { try await load(query, generation: generation) }
         catch {
-            if generation == searchGeneration { errorMessage = error.localizedDescription }
+            if generation == searchGeneration { errorMessage = PetalErrorCopy.message(error) }
             throw error
         }
     }
@@ -99,7 +99,7 @@ final class CardLibraryModel {
         let generation = searchGeneration
         do { try await load(text, generation: generation) }
         catch {
-            if generation == searchGeneration { errorMessage = error.localizedDescription }
+            if generation == searchGeneration { errorMessage = PetalErrorCopy.message(error) }
             throw error
         }
     }
@@ -111,7 +111,7 @@ final class CardLibraryModel {
         Task {
             do { try await load(text, generation: generation) }
             catch {
-                if generation == searchGeneration { errorMessage = error.localizedDescription }
+                if generation == searchGeneration { errorMessage = PetalErrorCopy.message(error) }
             }
         }
     }

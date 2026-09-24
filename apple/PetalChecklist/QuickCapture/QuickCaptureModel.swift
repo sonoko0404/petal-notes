@@ -66,7 +66,7 @@ final class QuickCaptureModel {
         } catch QuickCaptureError.confirmFallback {
             // Keep the exact draft visible until the user confirms Inbox with another submit.
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = PetalErrorCopy.message(error)
         }
     }
 
@@ -77,7 +77,7 @@ final class QuickCaptureModel {
             }
             guard allowsInboxFallback else { throw DeepLinkError.unavailable }
             if targetNotice == nil {
-                targetNotice = String(localized: "The selected card is unavailable. Press Add again to save to Inbox.")
+                targetNotice = String(localized: "ui.the_selected_card_is_unavailable_press_add_again_to_sav.2c78c8")
                 throw QuickCaptureError.confirmFallback
             }
         }
@@ -92,7 +92,7 @@ private enum QuickCaptureError: LocalizedError {
     case inboxUnavailable, confirmFallback
     var errorDescription: String? {
         switch self {
-        case .inboxUnavailable: String(localized: "Inbox is unavailable. Your draft has been kept.")
+        case .inboxUnavailable: String(localized: "ui.inbox_is_unavailable_your_draft_has_been_kept.81cef6")
         case .confirmFallback: nil
         }
     }

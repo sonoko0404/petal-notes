@@ -1,0 +1,9 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.65; color: #202020; background: #faf2db; }
+body { max-width: 48rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+nav { display: flex; flex-wrap: wrap; gap: 1rem; }
+a { color: #225c91; text-underline-offset: .2em; padding: .4rem .2rem; }
+a:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; border-radius: .2rem; }
+h1 { line-height: 1.2; font-size: clamp(1.8rem, 5vw, 2.7rem); }
+p { overflow-wrap: anywhere; }
+@media (prefers-color-scheme: dark) { :root { color: #f5f5f5; background: #332e24; } a { color: #9ccaff; } }
+@media (prefers-contrast: more) { a { text-decoration-thickness: 2px; } }

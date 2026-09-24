@@ -62,7 +62,7 @@ final class AppKitQuickCapturePanel: NSObject, QuickCapturePanelClient, NSWindow
                 styleMask: [.titled, .closable, .fullSizeContentView],
                 backing: .buffered, defer: false
             )
-            created.title = String(localized: "Quick Capture")
+            created.title = String(localized: "ui.quick_capture.3fb707")
             created.isFloatingPanel = true
             created.level = .floating
             created.hidesOnDeactivate = true

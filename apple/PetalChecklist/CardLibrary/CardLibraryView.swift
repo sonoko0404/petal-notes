@@ -13,17 +13,17 @@ struct CardLibraryView: View {
                 Text(scopeName(model.scope)).font(.headline)
                 Spacer()
                 Button(action: onCreate) { Image(systemName: "plus") }
-                    .accessibilityLabel(Text("New Card"))
+                    .accessibilityLabel(Text("ui.new_card.df1e64"))
                     .accessibilityIdentifier("card.create")
             }.padding()
-            TextField("Search", text: Binding(get: { model.query }, set: { model.setQuery($0) }))
+            TextField("ui.search.49c266", text: Binding(get: { model.query }, set: { model.setQuery($0) }))
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("library.search")
                 .padding(.horizontal)
             if let errorMessage = model.errorMessage {
                 HStack {
                     Text(errorMessage)
-                    Button("Retry") { Task { await model.retryQuery() } }
+                    Button("ui.retry.942087") { Task { await model.retryQuery() } }
                         .accessibilityIdentifier("library.retry")
                 }
                 .padding(.horizontal)
@@ -42,7 +42,7 @@ struct CardLibraryView: View {
                             }
                             }
                             if item.scope == .archive || item.scope == .trash {
-                                Button("Restore") { onRestore(item.result.cardID) }
+                                Button("ui.restore.a76e13") { onRestore(item.result.cardID) }
                                     .accessibilityIdentifier("card.restore")
                             }
                         }
@@ -55,7 +55,7 @@ struct CardLibraryView: View {
                                 .accessibilityIdentifier("card.select.\(card.id.rawValue)")
                             Spacer()
                             if card.status != .active {
-                                Button("Restore") { onRestore(card.id) }
+                                Button("ui.restore.a76e13") { onRestore(card.id) }
                                     .accessibilityIdentifier("card.restore")
                             }
                         }
@@ -70,10 +70,10 @@ struct CardLibraryView: View {
 
 func scopeName(_ scope: LibraryScope) -> LocalizedStringKey {
     switch scope {
-    case .inbox: "Inbox"
-    case .allCards: "All Cards"
-    case .archive: "Archive"
-    case .trash: "Trash"
-    case .settings: "Settings"
+    case .inbox: "ui.inbox.94835e"
+    case .allCards: "ui.all_cards.c98ee6"
+    case .archive: "ui.archive.66f480"
+    case .trash: "ui.trash.c56012"
+    case .settings: "ui.settings.74a883"
     }
 }

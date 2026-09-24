@@ -8,8 +8,8 @@ struct ChecklistWidget: Widget {
             provider: ChecklistTimelineProvider()) { entry in
                 ChecklistWidgetView(entry: entry)
             }
-            .configurationDisplayName("Petal Checklist")
-            .description("One card, always close at hand.")
+            .configurationDisplayName(String(localized: "ui.petal_checklist.d92314", table: "Widgets"))
+            .description(String(localized: "ui.one_card_always_close_at_hand.8585f6", table: "Widgets"))
             .supportedFamilies([.systemMedium, .systemLarge])
     }
 }
