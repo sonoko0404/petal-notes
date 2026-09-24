@@ -4,6 +4,8 @@ import PetalCore
 import PetalPersistence
 import PetalNotifications
 import PetalActions
+import PetalSync
+import WidgetKit
 
 struct RootView: View {
     let capture: QuickCaptureAppController
@@ -14,6 +16,7 @@ struct RootView: View {
     @State private var pendingInboxMove: PendingInboxMove?
     @State private var recordingShortcut = false
     @State private var reminders: AppReminderRuntime?
+    @State private var syncSettings: SyncSettingsModel?
     @AppStorage("notificationSoundEnabled", store: ReminderSoundPreference.defaults) private var notificationSoundEnabled = false
 
     private struct PendingInboxMove {
@@ -65,6 +68,7 @@ struct RootView: View {
                         VStack(alignment: .leading) {
                             Text("Settings").font(.title)
                             Text("Local cards are available offline.")
+                            if let syncSettings { SyncSettingsView(model: syncSettings) }
                             Toggle("Notification Sound", isOn: $notificationSoundEnabled)
                                 .onChange(of: notificationSoundEnabled) { _, _ in Task { await reminders?.reconcile(.localMutation) } }
                             Picker("Quick Capture Shortcut", selection: Binding(
@@ -153,9 +157,18 @@ struct RootView: View {
                 let opened = try await AppEnvironment.make()
                 let model = CardLibraryModel(repository: opened.repository)
                 try await model.show(.inbox)
-                let runtime = AppReminderRuntime(repository: opened.repository)
+                let refresh = AppStoreRefreshAdapter()
+                let shared = SharedSyncRuntime(repository: opened.repository,
+                    scheduler: UserNotificationScheduler(center: SystemNotificationCenter(), soundEnabled: { ReminderSoundPreference.isEnabled }),
+                    transport: CKSyncTransport(containerIdentifier: Bundle.main.object(forInfoDictionaryKey: "PetalCloudContainerIdentifier") as? String ?? "iCloud.com.petalchecklist"),
+                    refreshStore: { await refresh.refresh() }, reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() })
+                let runtime = AppReminderRuntime(coordinator: shared.reminders)
                 reminders = runtime
                 let navigation = AppRouter(repository: opened.repository, library: model, reminders: runtime.coordinator)
+                refresh.router = navigation
+                let settings = SyncSettingsModel(repository: opened.repository, coordinator: shared.sync)
+                syncSettings = settings
+                await settings.startObserving()
                 router = navigation
                 if let inbox = model.cards.first { await navigation.select(inbox.id) }
                 capture.configure(repository: opened.repository) { [weak navigation] id in
@@ -168,16 +181,20 @@ struct RootView: View {
                 }
                 capture.openFromLaunchArguments()
                 await runtime.start(broker: notificationBroker)
+                await settings.sync(.launch)
             } catch {
                 startupError = error.localizedDescription
             }
         }
         .onOpenURL { url in Task { await PetalNavigationRequests.shared.open(url) } }
+        .onReceive(NotificationCenter.default.publisher(for: .petalCloudPushReceived).receive(on: DispatchQueue.main)) { _ in
+            Task { await syncSettings?.sync(.push) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .petalRepositoryDidCommit).receive(on: DispatchQueue.main)) { _ in
-            Task { await reminders?.reconcile(.localMutation) }
+            Task { await reminders?.reconcile(.localMutation); await syncSettings?.sync(.localMutation) }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await reminders?.reconcile(.foreground) }
+            Task { await reminders?.reconcile(.foreground); await syncSettings?.sync(.foreground) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             Task { await reminders?.reconcile(.dateChange) }

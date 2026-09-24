@@ -7,11 +7,16 @@ import Observation
 import WidgetKit
 
 struct AppEnvironment {
-    let repository: any PetalRepository
+    let repository: any PetalSyncRepository
+    static var isTestRun: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-testing")
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
 
     static func make() async throws -> AppEnvironment {
         let arguments = ProcessInfo.processInfo.arguments
-        let testing = arguments.contains("-ui-testing")
+        let testing = isTestRun
         let store: PetalStore
         if testing {
             store = try ModelContainerFactory.makeInMemory()
@@ -21,6 +26,7 @@ struct AppEnvironment {
         }
         let setup = SwiftDataPetalRepository(container: store)
         try await setup.bootstrap(now: .now)
+        if testing { try await setup.setSyncEnabled(false) }
         if testing && arguments.contains("-ui-sample-cards") {
             let active = try await setup.createCard(title: "Active sample", now: .now)
             _ = try await setup.addLine(NewLineDraft(cardID: active.id, kind: .todo, text: "shared todo"), now: .now)
@@ -43,6 +49,7 @@ final class AppReminderRuntime {
     let coordinator: ReminderCoordinator
     private(set) var state: ReconcileResult?
     private(set) var actionFailed = false
+    init(coordinator: ReminderCoordinator) { self.coordinator = coordinator }
     init(repository: any PetalRepository) {
         let center = SystemNotificationCenter()
         coordinator = ReminderCoordinator(repository: repository,
@@ -61,4 +68,10 @@ final class AppReminderRuntime {
         do { state = try await coordinator.reconcile(reason) }
         catch { state = .schedulingFailed }
     }
+}
+
+/// Thin MainActor adapter; shared ordering remains in PetalActions.
+@MainActor final class AppStoreRefreshAdapter {
+    weak var router: AppRouter?
+    func refresh() async { await router?.syncDidCommit() }
 }

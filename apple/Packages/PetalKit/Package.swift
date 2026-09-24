@@ -26,6 +26,7 @@ let package = Package(
         .testTarget(name: "PetalCoreTests", dependencies: ["PetalCore"]),
         .testTarget(name: "PetalPersistenceTests", dependencies: ["PetalPersistence", "PetalTestSupport"]),
         .testTarget(name: "PetalSyncTests", dependencies: ["PetalSync", "PetalTestSupport"]),
+        .testTarget(name: "PetalActionsTests", dependencies: ["PetalActions", "PetalTestSupport"]),
         .testTarget(name: "PetalNotificationsTests", dependencies: ["PetalNotifications", "PetalActions", "PetalTestSupport"]),
         .testTarget(name: "PetalImportExportTests", dependencies: ["PetalImportExport", "PetalTestSupport"]),
         .testTarget(name: "PetalDesignSystemTests", dependencies: ["PetalDesignSystem"]),

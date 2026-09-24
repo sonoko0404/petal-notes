@@ -10,7 +10,7 @@ public struct PetalStore: Sendable {
 
 public enum ModelContainerFactory {
     public static func makeInMemory() throws -> PetalStore {
-        let schema = Schema(versionedSchema: PetalSchemaV1.self)
+        let schema = Schema(versionedSchema: PetalSchemaV2.self)
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         return PetalStore(container: try ModelContainer(
             for: schema, migrationPlan: PetalMigrationPlan.self, configurations: [configuration]
@@ -31,16 +31,33 @@ public enum ModelContainerFactory {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return try coordinator.withLock {
             let marker = directory.appendingPathComponent("Petal.schema-version")
-            if !FileManager.default.fileExists(atPath: marker.path) {
-                try Data("1".utf8).write(to: marker, options: .atomic)
+            if (try? String(contentsOf: marker, encoding: .utf8)) == "1" {
+                try writeRecoverySnapshot(directory: directory)
             }
-            let schema = Schema(versionedSchema: PetalSchemaV1.self)
+            // Fence old processes before migration. A failed migration can be
+            // retried by v2, while v1 must refuse any further writes.
+            try Data("2".utf8).write(to: marker, options: .atomic)
+            let schema = Schema(versionedSchema: PetalSchemaV2.self)
             let configuration = ModelConfiguration(schema: schema,
                 url: directory.appendingPathComponent("Petal.sqlite"), cloudKitDatabase: .none)
             return PetalStore(container: try ModelContainer(
                 for: schema, migrationPlan: PetalMigrationPlan.self, configurations: [configuration]
             ), coordinator: coordinator)
         }
+    }
+
+    private static func writeRecoverySnapshot(directory: URL) throws {
+        let schema = Schema(versionedSchema: PetalSchemaV1.self)
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema,
+            url: directory.appendingPathComponent("Petal.sqlite"), cloudKitDatabase: .none)])
+        let context = ModelContext(container)
+        let payloads: [String: [Data]] = [
+            "cards": try context.fetch(FetchDescriptor<PetalSchemaV1.StoredCard>()).map(\.payload),
+            "lines": try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).map(\.payload),
+            "outbox": try context.fetch(FetchDescriptor<PetalSchemaV1.StoredOutboxChange>()).map(\.payload),
+            "conflicts": try context.fetch(FetchDescriptor<PetalSchemaV1.StoredConflictArtifact>()).map(\.payload)
+        ]
+        try JSONEncoder().encode(payloads).write(to: directory.appendingPathComponent("Petal.pre-v2-recovery.json"), options: .atomic)
     }
 }
 
@@ -49,6 +66,12 @@ final class StoreCoordinator: Sendable {
     private let lock = NSLock()
     private let lockURL: URL?
     init(lockURL: URL? = nil) { self.lockURL = lockURL }
+
+    func removeMigrationRecoverySnapshot() throws {
+        guard let directory = lockURL?.deletingLastPathComponent() else { return }
+        let file = directory.appendingPathComponent("Petal.pre-v2-recovery.json")
+        if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+    }
 
     // A missing/malformed marker on an existing store fails closed. Future migrations
     // must advance this marker while holding the same lock, before opening for writes.
@@ -59,7 +82,7 @@ final class StoreCoordinator: Sendable {
             guard let version = try? JSONDecoder().decode(Int.self, from: Data(contentsOf: marker)) else {
                 throw RepositoryError.unrecognizedStoreSchema
             }
-            guard version == 1 else { throw RepositoryError.unsupportedSchema(version) }
+            guard version == 1 || version == 2 else { throw RepositoryError.unsupportedSchema(version) }
         } else if FileManager.default.fileExists(atPath: directory.appendingPathComponent("Petal.sqlite").path) {
             throw RepositoryError.unrecognizedStoreSchema
         }

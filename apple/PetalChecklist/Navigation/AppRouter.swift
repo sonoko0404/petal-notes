@@ -193,6 +193,19 @@ final class AppRouter {
         }, retry: { [weak self] in await self?.captureDidCommit(to: id) }, supersedesUserIntent: false)
     }
 
+    func syncDidCommit() async {
+        await transition({ [self] _ in
+            try await flushEditor()
+            if let id = selectedCardID {
+                if try await repository.card(id: id) == nil {
+                    editors.removeValue(forKey: id)
+                    selectedCardID = nil; editor = nil
+                } else { try await editor?.load() }
+            }
+            try await library.refresh()
+        }, retry: { [weak self] in await self?.syncDidCommit() }, supersedesUserIntent: false)
+    }
+
     func retryError() async {
         let retry = retryAction
         errorMessage = nil

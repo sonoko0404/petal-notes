@@ -131,7 +131,7 @@ private let instant = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(try await repository.lines(cardID: card.id).isEmpty)
     #expect(try await repository.conflicts().isEmpty)
     #expect(try await repository.resetGeneration() == generation)
-    #expect(try await repository.pendingOutboxCount() == 2)
+    #expect(try await repository.pendingOutboxCount() == 4)
     #expect(try await repository.pendingOutbox().contains { $0.entity == .userState })
 }
 
@@ -183,13 +183,13 @@ private let instant = Date(timeIntervalSince1970: 1_800_000_000)
     _ = try await repository.createCard(title: "Preserved", now: instant)
     let directory = root.appendingPathComponent("Library/Application Support/Petal")
     let marker = directory.appendingPathComponent("Petal.schema-version")
-    try Data("2".utf8).write(to: marker, options: .atomic)
+    try Data("3".utf8).write(to: marker, options: .atomic)
     let before = try Dictionary(uniqueKeysWithValues: FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         .map { ($0.lastPathComponent, try Data(contentsOf: $0)) })
-    #expect(throws: RepositoryError.unsupportedSchema(2)) {
+    #expect(throws: RepositoryError.unsupportedSchema(3)) {
         try ModelContainerFactory.makeShared(appGroupID: "test", containerURL: { _ in root })
     }
-    await #expect(throws: RepositoryError.unsupportedSchema(2)) {
+    await #expect(throws: RepositoryError.unsupportedSchema(3)) {
         try await repository.createCard(title: "Must not write", now: instant)
     }
     let after = try Dictionary(uniqueKeysWithValues: FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)

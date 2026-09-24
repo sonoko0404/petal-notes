@@ -1,11 +1,27 @@
 import XCTest
 import PetalCore
 import PetalPersistence
+import PetalSync
+import AppKit
 import PetalTestSupport
 @testable import PetalChecklist
 
 @MainActor
 final class AppRouterTests: XCTestCase {
+    func testSyncRefreshReloadsCommittedContentAndClearsDeletedSelection() async throws {
+        let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+        let card = try await repository.createCard(title: "Old", now: .now)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(card.id)
+        _ = try await repository.updateCardTitle(card.id, title: "Remote", now: .now)
+        await router.syncDidCommit()
+        XCTAssertEqual(router.editor?.title, "Remote")
+        try await repository.deleteAllData(resetGeneration: UUID(), now: .now)
+        await router.syncDidCommit()
+        XCTAssertNil(router.selectedCardID)
+        XCTAssertNil(router.editor)
+        XCTAssertEqual(router.library.cards.count, 1)
+    }
     func testCaptureCommitFlushesDraftThenRefreshesVisibleEditor() async throws {
         let base = try await InMemoryPetalRepository.bootstrapped()
         let active = try await base.cards(scope: .active)
@@ -221,5 +237,58 @@ final class AppRouterTests: XCTestCase {
         let persistedTitle = try await repository.card(id: first.id)?.title
         XCTAssertEqual(persistedTitle, "Reopened")
         XCTAssertEqual(router.selectedCardID, second.id)
+    }
+}
+
+private actor SettingsCloudTransport: CloudTransport {
+    var calls = 0
+    func fetchChanges(after token: Data?) async throws -> CloudFetchResult {
+        calls += 1; throw CloudTransportError.quotaExceeded
+    }
+    func send(_ changes: [OutboundCloudChange]) async throws -> CloudSendResult { CloudSendResult(acceptedIDs: []) }
+}
+
+@MainActor final class SyncSettingsModelTests: XCTestCase {
+    func testCloudPushPostsValueOnlyLifecycleTrigger() async {
+        let received = expectation(description: "Push lifecycle trigger")
+        let token = NotificationCenter.default.addObserver(forName: .petalCloudPushReceived, object: nil, queue: nil) { notification in
+            XCTAssertNil(notification.userInfo)
+            received.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        let delegate = PetalAppDelegate()
+        delegate.application(NSApplication.shared, didReceiveRemoteNotification: ["private": "must not propagate"])
+        await fulfillment(of: [received], timeout: 1)
+    }
+    func testSettingsObservesSyncStartedByOtherLifecycleTrigger() async throws {
+        let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+        let sync = CloudSyncCoordinator(repository: repository, transport: SettingsCloudTransport())
+        let model = SyncSettingsModel(repository: repository, coordinator: sync)
+        await model.startObserving()
+        await sync.sync(reason: .push)
+        XCTAssertEqual(model.state, .failed(.quotaExceeded))
+    }
+    func testSettingsToggleStatusConflictOnceAndResetEntryDoesNotDelete() async throws {
+        let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+        let card = try await repository.createCard(title: "Keep", now: .now)
+        _ = try await repository.captureConflict(cardID: card.id, lineID: nil, losingPayload: try JSONEncoder().encode(card), now: .now)
+        let transport = SettingsCloudTransport()
+        let sync = CloudSyncCoordinator(repository: repository, transport: transport)
+        let model = SyncSettingsModel(repository: repository, coordinator: sync)
+        await model.load()
+        XCTAssertEqual(model.conflicts.count, 1)
+        await model.setEnabled(false)
+        let calls = await transport.calls
+        XCTAssertEqual(calls, 0)
+        XCTAssertFalse(model.enabled)
+        await model.setEnabled(true)
+        XCTAssertEqual(model.state, .failed(.quotaExceeded))
+        model.requestReset()
+        XCTAssertTrue(model.isResetRequested)
+        let saved = try await repository.card(id: card.id)
+        XCTAssertNotNil(saved)
+        let reopened = SyncSettingsModel(repository: repository, coordinator: sync)
+        await reopened.load()
+        XCTAssertTrue(reopened.conflicts.isEmpty)
     }
 }

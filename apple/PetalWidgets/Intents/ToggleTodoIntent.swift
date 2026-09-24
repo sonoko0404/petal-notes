@@ -53,7 +53,9 @@ struct ToggleTodoIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let action = ReminderWidgetTodoAction(openRepository: { try WidgetStore.open() })
+        let action = SyncingWidgetTodoAction(openRepository: { try WidgetStore.open() },
+            containerIdentifier: Bundle.main.object(forInfoDictionaryKey: "PetalCloudContainerIdentifier") as? String ?? "iCloud.com.petalchecklist",
+            reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() })
         let outcome = await perform(action: action,
             reloader: SystemWidgetReloader(), clock: { .now })
         return .result(dialog: outcome.dialog)

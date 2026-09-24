@@ -4,6 +4,9 @@ import PetalCore
 public struct UserStateChange: Codable, Sendable, Equatable {
     public let resetGeneration: UUID
     public let inboxCardID: CardID
+    public init(resetGeneration: UUID, inboxCardID: CardID) {
+        self.resetGeneration = resetGeneration; self.inboxCardID = inboxCardID
+    }
 }
 
 public struct OutboxChange: Identifiable, Codable, Sendable, Equatable {
