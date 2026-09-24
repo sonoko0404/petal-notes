@@ -30,6 +30,11 @@ def settings_errors(release, debug):
             row = rows[target]
             if row.get("PETAL_APS_ENVIRONMENT") != aps:
                 errors.append(configuration + " " + target + ": wrong APNs environment")
+            expected_bundle = row.get("APP_BUNDLE_IDENTIFIER") if target == "PetalChecklist" else row.get("WIDGET_BUNDLE_IDENTIFIER")
+            if not expected_bundle or row.get("PRODUCT_BUNDLE_IDENTIFIER") != expected_bundle:
+                errors.append(configuration + " " + target + ": effective bundle ID differs from candidate")
+            if row.get("CODE_SIGN_ENTITLEMENTS") != target + "/" + target + ".entitlements":
+                errors.append(configuration + " " + target + ": unexpected selected entitlements")
             for key in IDENTIFIERS:
                 value = row.get(key, "")
                 if not value or "$" in value or "PLACEHOLDER" in value.upper():
@@ -45,28 +50,34 @@ def settings_errors(release, debug):
     return errors
 
 
-def entitlement_errors(root):
+def entitlement_errors(root, release, debug):
     errors = []
-    for target in TARGETS:
-        path = root / "apple" / target / (target + ".entitlements")
-        try:
-            with path.open("rb") as stream:
-                data = plistlib.load(stream)
-        except (OSError, ValueError) as error:
-            errors.append(target + ": unreadable entitlements: " + str(error))
-            continue
-        expected = {"com.apple.developer.aps-environment": "$(PETAL_APS_ENVIRONMENT)",
-            "com.apple.security.app-sandbox": True,
-            "com.apple.security.application-groups": ["$(APP_GROUP_IDENTIFIER)"],
-            "com.apple.developer.icloud-container-identifiers": ["$(ICLOUD_CONTAINER_IDENTIFIER)"],
-            "com.apple.developer.icloud-services": ["CloudKit"]}
-        if target == "PetalChecklist": expected["com.apple.security.files.user-selected.read-write"] = True
-        if data != expected: errors.append(target + ": unexpected entitlement values")
+    for configuration, rows in (("Release", release), ("Debug", debug)):
+        for target in TARGETS:
+            selected = rows.get(target, {}).get("CODE_SIGN_ENTITLEMENTS")
+            expected_path = target + "/" + target + ".entitlements"
+            if selected != expected_path:
+                errors.append(configuration + " " + target + ": unreviewed selected entitlements")
+                continue
+            path = root / "apple" / selected
+            try:
+                with path.open("rb") as stream:
+                    data = plistlib.load(stream)
+            except (OSError, ValueError) as error:
+                errors.append(configuration + " " + target + ": unreadable selected entitlements: " + str(error))
+                continue
+            expected = {"com.apple.developer.aps-environment": "$(PETAL_APS_ENVIRONMENT)",
+                "com.apple.security.app-sandbox": True,
+                "com.apple.security.application-groups": ["$(APP_GROUP_IDENTIFIER)"],
+                "com.apple.developer.icloud-container-identifiers": ["$(ICLOUD_CONTAINER_IDENTIFIER)"],
+                "com.apple.developer.icloud-services": ["CloudKit"]}
+            if target == "PetalChecklist": expected["com.apple.security.files.user-selected.read-write"] = True
+            if data != expected: errors.append(configuration + " " + target + ": unexpected selected entitlement values")
     return errors
 
 
 def field(source, name):
-    match = re.search(r"^" + re.escape(name) + r":\s*(.+)$", source, re.M)
+    match = re.search(r"^" + re.escape(name) + r":[ \t]*([^\r\n]*)$", source, re.M)
     return match.group(1).strip() if match else ""
 
 
@@ -119,6 +130,9 @@ def document_errors(metadata, readiness, beta):
             errors.append("External gate not blocked: " + gate)
     if "Status: BLOCKED" not in beta or "Market gate: NOT RUN" not in beta:
         errors.append("Beta status falsely marked complete")
+    decisions = re.findall(r"Current decision:[ \t]*([^\r\n]*)$", beta, re.M)
+    if len(decisions) != 1 or decisions[0].strip().rstrip(".") != "NOT RUN":
+        errors.append("Beta decision falsely marked complete")
     for threshold in ("20–30", "14/20", "8/20", "5/20"):
         if threshold not in beta: errors.append("Beta gate missing " + threshold)
     for label in ("TestFlight build/version", "Invited target users", "Enrolled target users",
@@ -152,7 +166,7 @@ def main():
         readiness = (root / "docs/release/release-readiness.md").read_text()
         beta = (root / "docs/validation/testflight-four-week-report.md").read_text()
         notes = (root / "docs/release/review-notes.md").read_text()
-        errors = settings_errors(release, debug) + entitlement_errors(root) + document_errors(metadata, readiness, beta)
+        errors = settings_errors(release, debug) + entitlement_errors(root, release, debug) + document_errors(metadata, readiness, beta)
         if "# App Review notes" not in notes or "not submitted" not in notes or len(notes) < 500:
             errors.append("Reviewer notes missing or falsely final")
         if any(release[target].get("DEVELOPMENT_TEAM") or release[target].get("PETAL_FEEDBACK_EMAIL") for target in TARGETS):
