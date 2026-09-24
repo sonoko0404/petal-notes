@@ -11,6 +11,10 @@ struct LibrarySearchResult: Identifiable {
 
 @MainActor @Observable
 final class CardLibraryModel {
+    struct PreparedScope {
+        let scope: LibraryScope
+        let cards: [Card]
+    }
     private let repository: any PetalRepository
     private(set) var scope: LibraryScope = .inbox
     private(set) var cards: [Card] = []
@@ -20,6 +24,28 @@ final class CardLibraryModel {
     @ObservationIgnored private var searchGeneration = 0
 
     init(repository: any PetalRepository) { self.repository = repository }
+
+    /// Stage navigation reads without publishing a partial scope change.
+    func prepare(_ scope: LibraryScope) async throws -> PreparedScope {
+        let cards: [Card]
+        switch scope {
+        case .inbox: cards = try await repository.cards(scope: .active).filter(\.isInbox)
+        case .allCards: cards = try await repository.cards(scope: .active)
+        case .archive: cards = try await repository.cards(scope: .archived)
+        case .trash: cards = try await repository.cards(scope: .trashed)
+        case .settings: cards = []
+        }
+        return PreparedScope(scope: scope, cards: cards)
+    }
+
+    func publish(_ prepared: PreparedScope) {
+        searchGeneration += 1
+        scope = prepared.scope
+        cards = prepared.cards
+        query = ""
+        searchResults = []
+        errorMessage = nil
+    }
 
     func show(_ scope: LibraryScope) async throws {
         self.scope = scope

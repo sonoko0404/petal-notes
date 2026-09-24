@@ -6,6 +6,58 @@ import PetalTestSupport
 
 @MainActor
 final class DeepLinkHandlerTests: XCTestCase {
+    func testCardLinkPublishesMatchingLibraryFromSettingsAndTrashUsingFinalStatus() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Target", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        let handler = DeepLinkHandler(router: router) { _ in XCTFail("Unexpected capture") }
+        for source in [LibraryScope.settings, .trash] {
+            try await base.moveCard(card.id, to: .active, replacementInbox: nil, now: .now)
+            await router.show(source)
+            await handler.handle(PetalDeepLink.card(card.id).url)
+            XCTAssertEqual(router.scope, .allCards)
+            XCTAssertEqual(router.library.scope, .allCards)
+            XCTAssertTrue(router.library.cards.contains { $0.id == card.id })
+        }
+        await router.show(.settings)
+        repository.linesGate.pauseNext()
+        let routing = Task { await handler.handle(PetalDeepLink.card(card.id).url) }
+        await repository.linesGate.waitUntilEntered()
+        try await base.moveCard(card.id, to: .archived, replacementInbox: nil, now: .now)
+        repository.linesGate.resume()
+        await routing.value
+        XCTAssertEqual(router.scope, .archive)
+        XCTAssertEqual(router.library.scope, .archive)
+        XCTAssertEqual(router.library.cards.map(\.id), [card.id])
+        XCTAssertEqual(router.editor?.status, .archived)
+    }
+
+    func testMalformedArrivalSupersedesSuspendedValidRoute() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Target", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.show(.settings)
+        let handler = DeepLinkHandler(router: router) { _ in XCTFail("Unexpected capture") }
+        repository.cardGate.pauseNext()
+        let valid = Task { await handler.handle(PetalDeepLink.card(card.id).url) }
+        await repository.cardGate.waitUntilEntered()
+        var rejectionStarted = false
+        let rejected = Task {
+            rejectionStarted = true
+            await handler.handle(URL(string: "petal://card/invalid")!)
+        }
+        while !rejectionStarted { await Task.yield() }
+        repository.cardGate.resume()
+        await valid.value
+        await rejected.value
+        XCTAssertNil(router.selectedCardID)
+        XCTAssertEqual(router.scope, .settings)
+        XCTAssertEqual(router.library.scope, .settings)
+        XCTAssertEqual(router.errorMessage, DeepLinkError.invalidLink.errorDescription)
+    }
+
     func testMalformedLinksNeverSelectOrCapture() async throws {
         let repository = try await InMemoryPetalRepository.bootstrapped()
         let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))

@@ -14,8 +14,87 @@ private struct FailedAction: WidgetTodoAction {
     func setCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) async throws { throw error }
 }
 
+@MainActor private final class SuspendedCompletionAction: WidgetTodoAction {
+    let repository: any PetalRepository
+    let gate = RepositoryGate()
+    init(repository: any PetalRepository) { self.repository = repository }
+    func setCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) async throws {
+        await gate.enter()
+        try await repository.setWidgetCompleted(lineID: lineID, completed: completed, now: now, calendar: calendar)
+    }
+}
+
 @MainActor
 final class WidgetIntentTests: XCTestCase {
+    func testOppositeIntentsCommitInArrivalOrderWhenOlderMutationIsSuspended() async throws {
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
+        let original = try await f.repository.lines(cardID: f.fixtureCardID)
+        let id = try XCTUnwrap(original.first?.id)
+        let action = SuspendedCompletionAction(repository: f.repository)
+        let reload = ReloadRecorder()
+        let coordinator = WidgetLineActionCoordinator()
+        action.gate.pauseNext()
+        let first = await ToggleTodoIntent(lineID: id, completed: true).enqueue(
+            action: action, reloader: reload, clock: { .now }, coordinator: coordinator)
+        await action.gate.waitUntilEntered()
+        let second = await ToggleTodoIntent(lineID: id, completed: false).enqueue(
+            action: action, reloader: reload, clock: { .now }, coordinator: coordinator)
+        action.gate.resume()
+        let firstResult = await first.value
+        let secondResult = await second.value
+        XCTAssertEqual(firstResult, .success)
+        XCTAssertEqual(secondResult, .success)
+        let lines = try await f.repository.lines(cardID: f.fixtureCardID)
+        XCTAssertEqual(lines.first?.isCompleted, false)
+        XCTAssertNil(lines.first?.completedAt)
+        XCTAssertEqual(lines.first?.revision, original.first!.revision + 2)
+        let kinds = await reload.kinds
+        XCTAssertEqual(kinds, [ChecklistWidget.kind, ChecklistWidget.kind])
+    }
+
+    func testLaterOppositeIntentCommitsAfterCompletedOlderTransaction() async throws {
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
+        let lines = try await f.repository.lines(cardID: f.fixtureCardID)
+        let id = try XCTUnwrap(lines.first?.id)
+        let action = RepositoryWidgetTodoAction(repository: f.repository)
+        let reload = ReloadRecorder()
+        let coordinator = WidgetLineActionCoordinator()
+        let first = await ToggleTodoIntent(lineID: id, completed: true).enqueue(
+            action: action, reloader: reload, clock: { .now }, coordinator: coordinator)
+        _ = await first.value
+        let second = await ToggleTodoIntent(lineID: id, completed: false).enqueue(
+            action: action, reloader: reload, clock: { .now }, coordinator: coordinator)
+        _ = await second.value
+        let final = try await f.repository.lines(cardID: f.fixtureCardID)
+        XCTAssertEqual(final.first?.isCompleted, false)
+        let kinds = await reload.kinds
+        XCTAssertEqual(kinds, [ChecklistWidget.kind, ChecklistWidget.kind])
+    }
+
+    func testNavigationQueuePreservesArrivalOrderDuringInstallDrain() async {
+        let requests = PetalNavigationRequests()
+        let a = URL(string: "petal://card/00000000-0000-0000-0000-000000000001")!
+        let b = URL(string: "petal://card/00000000-0000-0000-0000-000000000002")!
+        let c = URL(string: "petal://card/00000000-0000-0000-0000-000000000003")!
+        await requests.open(a)
+        await requests.open(b)
+        let gate = RepositoryGate()
+        gate.pauseNext()
+        var delivered: [URL] = []
+        let install = Task {
+            await requests.install { url in
+                delivered.append(url)
+                if url == a { await gate.enter() }
+            }
+        }
+        await gate.waitUntilEntered()
+        await requests.open(c)
+        XCTAssertEqual(delivered, [a], "One drain must prevent C from overtaking B")
+        gate.resume()
+        await install.value
+        XCTAssertEqual(delivered, [a, b, c])
+    }
+
     func testRowControlsUseFinalStateAndTextOpensTheSameCard() {
         let card = CardID(rawValue: UUID())
         let id = LineID(rawValue: UUID())

@@ -21,7 +21,7 @@ struct DeepLinkHandler {
 
     func handle(_ url: URL) async {
         guard let route = PetalDeepLink(url: url) else {
-            router.present(DeepLinkError.invalidLink) { await handle(url) }
+            await router.rejectDeepLink(.invalidLink)
             return
         }
         await router.follow(route, presentCapture: presentCapture)

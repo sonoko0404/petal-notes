@@ -57,7 +57,21 @@ struct ToggleTodoIntent: AppIntent {
     }
 
     func perform(action: any WidgetTodoAction, reloader: any WidgetReloading,
-                 clock: @Sendable () -> Date, calendar: Calendar = .current) async -> WidgetIntentOutcome {
+                 clock: @escaping @Sendable () -> Date, calendar: Calendar = .current) async -> WidgetIntentOutcome {
+        let work = await enqueue(action: action, reloader: reloader, clock: clock, calendar: calendar)
+        return await work.value
+    }
+
+    func enqueue(action: any WidgetTodoAction, reloader: any WidgetReloading,
+                 clock: @escaping @Sendable () -> Date, calendar: Calendar = .current,
+                 coordinator: WidgetLineActionCoordinator = .shared) async -> Task<WidgetIntentOutcome, Never> {
+        await coordinator.enqueue(lineID: LineID(rawValue: line.id)) {
+            await performOrdered(action: action, reloader: reloader, clock: clock, calendar: calendar)
+        }
+    }
+
+    private func performOrdered(action: any WidgetTodoAction, reloader: any WidgetReloading,
+                 clock: @Sendable () -> Date, calendar: Calendar) async -> WidgetIntentOutcome {
         let outcome: WidgetIntentOutcome
         do {
             try await action.setCompleted(lineID: LineID(rawValue: line.id), completed: completed, now: clock(), calendar: calendar)

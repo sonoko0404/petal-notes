@@ -102,26 +102,43 @@ final class AppRouter {
             do {
                 try await flushEditor()
                 guard isCurrent(request) else { return }
-                let card = try await DeepLinkHandler.validate(route, repository: repository)
+                _ = try await DeepLinkHandler.validate(route, repository: repository)
                 guard isCurrent(request) else { return }
                 switch route {
                 case .card(let id):
                     let next = editors[id] ?? CardEditorModel(cardID: id, repository: repository)
                     try await next.load()
                     guard isCurrent(request) else { return }
-                    _ = try await DeepLinkHandler.validate(route, repository: repository)
+                    var card = try await DeepLinkHandler.validate(route, repository: repository)
+                    if next.status != card.status {
+                        try await next.load()
+                        card = try await DeepLinkHandler.validate(route, repository: repository)
+                    }
+                    guard next.status == card.status else { throw DeepLinkError.unavailable }
                     guard isCurrent(request) else { return }
+                    let destination: LibraryScope = card.status == .archived ? .archive : .allCards
+                    let snapshot = try await library.prepare(destination)
+                    guard isCurrent(request) else { return }
+                    let finalCard = try await DeepLinkHandler.validate(route, repository: repository)
+                    guard finalCard.status == card.status else { throw DeepLinkError.unavailable }
+                    guard isCurrent(request) else { return }
+                    library.publish(snapshot)
                     editors[id] = next
                     next.setTransitionLocked(true)
                     editor = next
                     selectedCardID = id
-                    scope = card.status == .archived ? .archive : .allCards
+                    scope = destination
                 case .quickAdd(let id):
                     try presentCapture(id)
                 }
             } catch let error as DeepLinkError { throw error
             } catch { throw DeepLinkError.cannotOpen }
         }, retry: { [weak self] in await self?.follow(route, presentCapture: presentCapture) })
+    }
+
+    func rejectDeepLink(_ error: DeepLinkError) async {
+        await transition({ _ in throw error },
+            retry: { [weak self] in await self?.rejectDeepLink(error) })
     }
 
     func createCard() async {

@@ -7,14 +7,24 @@ public final class PetalNavigationRequests {
     public static let shared = PetalNavigationRequests()
     private var pending: [URL] = []
     private var handler: (@MainActor (URL) async -> Void)?
+    private var isDraining = false
     public init() {}
     public func open(_ url: URL) async {
-        if let handler { await handler(url) } else { pending.append(url) }
+        pending.append(url)
+        await drain()
     }
     public func install(_ handler: @escaping @MainActor (URL) async -> Void) async {
         self.handler = handler
-        let requests = pending
-        pending.removeAll()
-        for url in requests { await handler(url) }
+        await drain()
+    }
+
+    private func drain() async {
+        guard !isDraining, handler != nil else { return }
+        isDraining = true
+        defer { isDraining = false }
+        while !pending.isEmpty, let handler {
+            let url = pending.removeFirst()
+            await handler(url)
+        }
     }
 }
