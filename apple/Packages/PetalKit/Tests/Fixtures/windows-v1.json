@@ -1,0 +1,15 @@
+{
+  "SchemaVersion": 1,
+  "Notes": [{
+    "Id": "4dbfd594-1ee5-472b-8a00-687675b485f7",
+    "Title": "Garden checklist",
+    "Body": "First paragraph\r\n\r\nSecond paragraph",
+    "Theme": "mint", "Font": "Microsoft YaHei UI", "FontSize": 15,
+    "Left": 140, "Top": 80, "Width": 300, "Height": 320,
+    "Pinned": true, "Hidden": true, "Collapsed": true, "DeletedAt": null,
+    "Todos": [{"Text": "Seeds", "Done": true}, {"Text": "Water", "Done": false}],
+    "Reminder": {"Due": "2026-09-25T09:30:00+08:00", "Daily": false, "Hour": 9, "Minute": 30, "Pending": false}
+  }],
+  "Settings": {"DefaultTheme": "cream", "Sound": false},
+  "Pomodoro": {"Phase": "focus", "CompletedRounds": 2, "RemainingSeconds": 1500}
+}

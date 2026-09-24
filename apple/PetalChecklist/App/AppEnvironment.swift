@@ -7,7 +7,7 @@ import Observation
 import WidgetKit
 
 struct AppEnvironment {
-    let repository: any PetalSyncRepository
+    let repository: any PetalSyncRepository & PetalTransferRepository
     static var isTestRun: Bool {
         ProcessInfo.processInfo.arguments.contains("-ui-testing")
             || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil

@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import PetalCore
 
-public struct SwiftDataPetalRepository: PetalSyncRepository {
+public struct SwiftDataPetalRepository: PetalSyncRepository, PetalTransferRepository {
     private let store: RepositoryStore
 
     public init(container: PetalStore, faultInjector: RepositoryFaultInjector = .none) {
@@ -71,6 +71,14 @@ public struct SwiftDataPetalRepository: PetalSyncRepository {
         try await store.recordSyncState(state, retryAt: retryAt, expectedEpoch: expectedEpoch)
     }
     public func finishResetCleanup() async throws { try await store.finishResetCleanup() }
+    public func transferSnapshot() async throws -> TransferSnapshot { try await store.transferSnapshot() }
+    public func importCards(_ cards: [ImportedCard], now: Date,
+        backup: @Sendable (TransferSnapshot) throws -> Void) async throws -> Int {
+        try await store.importCards(cards, now: now, backup: backup)
+    }
+    public func replaceUserData(_ snapshot: TransferSnapshot, now: Date) async throws {
+        try await store.replaceUserData(snapshot, now: now)
+    }
 }
 
 @ModelActor
@@ -80,6 +88,114 @@ private actor RepositoryStore {
     private var transactionContext: ModelContext?
     // Fresh read contexts prevent stale registered objects after another process saves.
     private var context: ModelContext { transactionContext ?? ModelContext(modelContainer) }
+
+    private func rawTransferSnapshot() throws -> TransferSnapshot {
+        TransferSnapshot(cards: try cards(scope: .all),
+            lines: try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).map { try $0.value() })
+    }
+
+    func transferSnapshot() throws -> TransferSnapshot {
+        try coordinator.withLock { try rawTransferSnapshot() }
+    }
+
+    func replaceUserData(_ snapshot: TransferSnapshot, now: Date) throws {
+        try snapshot.validate()
+        try transaction {
+            let cardIDs = Set(snapshot.cards.map(\.id))
+            let lineIDs = Set(snapshot.lines.map(\.id))
+            var oldCards: [CardID: PetalSchemaV1.StoredCard] = [:]
+            var oldLines: [LineID: PetalSchemaV1.StoredLine] = [:]
+            for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()) {
+                let id = LineID(rawValue: row.id)
+                if lineIDs.contains(id) { oldLines[id] = row }
+                else { try appendDeletion(entity: .line, id: row.id, now: now); context.delete(row) }
+            }
+            for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredCard>()) {
+                let id = CardID(rawValue: row.id)
+                if cardIDs.contains(id) { oldCards[id] = row }
+                else { try appendDeletion(entity: .card, id: row.id, now: now); context.delete(row) }
+            }
+            var metadata = try syncMetadata()
+            let restoredIDs = Set(cardIDs.map(\.rawValue) + lineIDs.map(\.rawValue))
+            let tombstoneDates = Dictionary(grouping: metadata.tombstones, by: \.entityID)
+            metadata.tombstones.removeAll { restoredIDs.contains($0.entityID) }
+            metadata.unresolvedLines = (metadata.unresolvedLines ?? []).filter {
+                if case .line(let line) = $0.payload { return !lineIDs.contains(line.id) }
+                return true
+            }
+            try syncMetadataRow().payload = JSONEncoder().encode(metadata)
+            for var card in snapshot.cards {
+                let old = try oldCards[card.id]?.value()
+                card.deviceID = try deviceID()
+                card.revision = (old?.revision ?? 0) + 1
+                card.modifiedAt = max(now, (old?.modifiedAt ?? now).addingTimeInterval(0.001),
+                    (tombstoneDates[card.id.rawValue]?.map(\.deletedAt).max() ?? now).addingTimeInterval(0.001))
+                try discardSupersededDeletion(entity: .card, id: card.id.rawValue)
+                let row = try oldCards[card.id] ?? PetalSchemaV1.StoredCard(card)
+                row.payload = try JSONEncoder().encode(card)
+                if oldCards[card.id] == nil { context.insert(row) }
+                try appendChange(entity: .card, id: row.id, payload: row.payload, now: now)
+            }
+            for var line in snapshot.lines {
+                let old = try oldLines[line.id]?.value()
+                line.deviceID = try deviceID()
+                line.revision = (old?.revision ?? 0) + 1
+                line.modifiedAt = max(now, (old?.modifiedAt ?? now).addingTimeInterval(0.001),
+                    (tombstoneDates[line.id.rawValue]?.map(\.deletedAt).max() ?? now).addingTimeInterval(0.001))
+                try discardSupersededDeletion(entity: .line, id: line.id.rawValue)
+                let row = try oldLines[line.id] ?? PetalSchemaV1.StoredLine(line)
+                row.cardID = line.cardID.rawValue
+                row.payload = try JSONEncoder().encode(line)
+                if oldLines[line.id] == nil { context.insert(row) }
+                try appendChange(entity: .line, id: row.id, payload: row.payload, now: now)
+            }
+            for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredImportFingerprint>()) { context.delete(row) }
+            try repairInbox(now: now)
+        }
+    }
+
+    func importCards(_ entries: [ImportedCard], now: Date,
+                     backup: @Sendable (TransferSnapshot) throws -> Void) throws -> Int {
+        try TransferSnapshot(cards: entries.map(\.card), lines: entries.flatMap(\.lines)).validate()
+        guard entries.allSatisfy({ entry in !entry.card.isInbox && !entry.fingerprint.isEmpty
+            && entry.lines.allSatisfy { $0.cardID == entry.card.id } }) else { throw TransferRepositoryError.invalidSnapshot }
+        return try transaction {
+            let before = try rawTransferSnapshot()
+            // Snapshot and durable backup happen under the same cross-process lock as the save.
+            // No rows, fingerprints, user-state sequence, or outbox entries have changed yet.
+            try backup(before)
+            var fingerprints = Set(try context.fetch(FetchDescriptor<PetalSchemaV1.StoredImportFingerprint>()).map(\.fingerprint))
+            var count = 0
+            var cardIDs = Set(before.cards.map(\.id))
+            var lineIDs = Set(before.lines.map(\.id))
+            for entry in entries where !fingerprints.contains(entry.fingerprint) {
+                let sourceKey = "windows-note:" + entry.sourceNoteID.uuidString.lowercased()
+                guard !fingerprints.contains(sourceKey) else { continue }
+                guard cardIDs.insert(entry.card.id).inserted,
+                      entry.lines.allSatisfy({ lineIDs.insert($0.id).inserted && $0.cardID == entry.card.id }) else {
+                    throw TransferRepositoryError.invalidSnapshot
+                }
+                var card = entry.card
+                card.deviceID = try deviceID()
+                let stored = try PetalSchemaV1.StoredCard(card)
+                context.insert(stored)
+                try appendChange(entity: .card, id: stored.id, payload: stored.payload, now: now)
+                for var line in entry.lines {
+                    line.deviceID = card.deviceID
+                    let storedLine = try PetalSchemaV1.StoredLine(line)
+                    context.insert(storedLine)
+                    try appendChange(entity: .line, id: storedLine.id, payload: storedLine.payload, now: now)
+                }
+                context.insert(PetalSchemaV1.StoredImportFingerprint(fingerprint: entry.fingerprint, importedAt: now))
+                context.insert(PetalSchemaV1.StoredImportFingerprint(fingerprint: sourceKey, importedAt: now))
+                fingerprints.insert(entry.fingerprint)
+                fingerprints.insert(sourceKey)
+                count += 1
+            }
+            if count > 0 { try repairInbox(now: now) }
+            return count
+        }
+    }
 
     init(container: PetalStore, faultInjector: RepositoryFaultInjector) {
         modelContainer = container.container

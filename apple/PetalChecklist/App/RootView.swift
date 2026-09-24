@@ -6,6 +6,7 @@ import PetalNotifications
 import PetalActions
 import PetalSync
 import WidgetKit
+import PetalImportExport
 
 struct RootView: View {
     let capture: QuickCaptureAppController
@@ -17,6 +18,7 @@ struct RootView: View {
     @State private var recordingShortcut = false
     @State private var reminders: AppReminderRuntime?
     @State private var syncSettings: SyncSettingsModel?
+    @State private var dataTransfer: DataTransferModel?
     @AppStorage("notificationSoundEnabled", store: ReminderSoundPreference.defaults) private var notificationSoundEnabled = false
 
     private struct PendingInboxMove {
@@ -69,6 +71,7 @@ struct RootView: View {
                             Text("Settings").font(.title)
                             Text("Local cards are available offline.")
                             if let syncSettings { SyncSettingsView(model: syncSettings) }
+                            if let dataTransfer { DataTransferView(model: dataTransfer) }
                             Toggle("Notification Sound", isOn: $notificationSoundEnabled)
                                 .onChange(of: notificationSoundEnabled) { _, _ in Task { await reminders?.reconcile(.localMutation) } }
                             Picker("Quick Capture Shortcut", selection: Binding(
@@ -170,6 +173,11 @@ struct RootView: View {
                 syncSettings = settings
                 await settings.startObserving()
                 router = navigation
+                dataTransfer = DataTransferModel(repository: opened.repository,
+                    settings: { TransferSettings(notificationSoundEnabled: ReminderSoundPreference.isEnabled) },
+                    applySettings: { ReminderSoundPreference.defaults?.set($0.notificationSoundEnabled, forKey: "notificationSoundEnabled") },
+                    prepare: { await navigation.prepareClose() },
+                    finished: { navigation.closeRequestDidEnd(); await navigation.syncDidCommit(); await runtime.reconcile(.localMutation) })
                 if let inbox = model.cards.first { await navigation.select(inbox.id) }
                 capture.configure(repository: opened.repository) { [weak navigation] id in
                     await navigation?.captureDidCommit(to: id)
