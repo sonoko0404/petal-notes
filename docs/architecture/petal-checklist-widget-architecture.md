@@ -427,6 +427,30 @@ public protocol ReminderScheduling: Sendable {
 - 声音默认 `nil`；用户开启后使用系统默认声音。
 - App 启动、时区变化、系统日期变化、同步入站和 line mutation 后执行 reconcile。
 
+### 10.1 macOS 原生每日重复契约（2026-09-23 Task 8 审核裁定）
+
+每日提醒使用一个无限期重复的 `UNCalendarNotificationTrigger`，只设置当地
+`hour/minute/second`，不嵌入固定 `timeZone` 或包含时区快照的 `calendar`。
+这样 App 退出及用户旅行改变系统时区后仍按当地时间提醒，不使用会过期或耗尽
+通知容量的有限预排队列。`line.<uuid>` 标识保持不变。
+
+时间策略跟随原生 Calendar 契约：春季跳时保留较小单位，例如当地 02:30
+变为 03:30；秋季重复小时取第一次发生。`ReminderPolicy` 使用
+`.nextTimePreservingSmallerComponents` 和 `.first`。原生 `nextTriggerDate()`
+探针验证未来 DST 边界；实际送达仍需 Task 12 的签名运行与改时区矩阵。
+
+通知中的“完成”发生于本次送达之后：持久化完成状态，清除已送达通知与 snooze，
+保留每日 base repeat 供未来日期继续使用；单次提醒则取消 base 和 snooze。
+Widget/编辑器提前完成每日项时也保留每日 base repeat，因此当天晚些时候仍可能
+出现一次提醒。这是明确接受的平台取舍：原生 API 无法在单个无限重复请求上同时
+表达“跳过今天”和“从明天起无限重复”；不得为了抑制今天而静默中断未来提醒。
+用户移除/禁用提醒仍取消全部对应请求。
+
+通知 delegate 在 `NSApplicationDelegateAdaptor` 创建 App delegate 时同步安装。
+只有通过 ownership/action 验证的 UUID/action 才进入有界 FIFO；repository 和 router
+就绪后开始顺序消费。队列溢出拒绝最新响应并展示通用失败，不记录内容。
+重复生命周期失效请求合并；执行期间收到的新失效必须触发一次新鲜读取后才完成。
+
 ## 11. 导入与导出
 
 ### 11.1 Windows 导入

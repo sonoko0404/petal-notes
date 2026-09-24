@@ -4,10 +4,82 @@ import PetalPersistence
 import PetalTestSupport
 import SwiftUI
 import PetalNotifications
+import PetalActions
+import UserNotifications
 @testable import PetalChecklist
 
 @MainActor
 final class CardEditorModelTests: XCTestCase {
+    func testEditorDailyCompletionKeepsRepeatAndCancelsSnoozeBeforeReturning() async throws {
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
+        let center = EditorNotificationCenter()
+        await center.authorizeInSettings()
+        let coordinator = ReminderCoordinator(repository: f.repository, scheduler: UserNotificationScheduler(center: center))
+        let model = CardEditorModel(cardID: f.fixtureCardID, repository: f.repository, reminders: coordinator)
+        try await model.load()
+        let id = model.lines[0].id
+        model.editReminder(lineID: id, reminder: Reminder(rule: .daily(localMinute: 1439, timeZoneIdentifier: "UTC"),
+            isEnabled: true, snoozedUntil: .now.addingTimeInterval(300)))
+        _ = await model.saveReminder(lineID: id)
+        try await model.setCompleted(lineID: id, completed: true)
+        let requests = await center.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertNotNil(requests.first?.dailyComponents)
+        XCTAssertEqual(requests.first?.id, "line.\(id.rawValue)")
+    }
+    func testAppDelegateInstallsBrokerBeforeRepositoryAndRouterExist() async throws {
+        let center = UNUserNotificationCenter.current()
+        let previous = center.delegate
+        defer { center.delegate = previous }
+        let appDelegate = PetalAppDelegate()
+        let delegate = try XCTUnwrap(center.delegate as? NotificationResponseDelegate)
+        let lineID = LineID(rawValue: UUID()), cardID = CardID(rawValue: UUID())
+        let native = try SystemNotificationCenter.makeRequest(ReminderRequest(id: "line.\(lineID.rawValue)",
+            cardID: cardID, lineID: lineID, body: "Todo", fireDate: .distantFuture, sound: false))
+        await delegate.receive(request: native, actionIdentifier: "complete")
+        let handler = LaunchActionRecorder()
+        await appDelegate.notificationBroker.install(handler, onFailure: {})
+        let actions = await handler.actions
+        XCTAssertEqual(actions, [.complete])
+    }
+    func testReminderFeedbackIsPerLineAndSettingsOpenerReportsFailure() async throws {
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 2)
+        var opened: URL?
+        let model = CardEditorModel(cardID: f.fixtureCardID, repository: f.repository,
+            settingsOpener: NotificationSettingsOpener(openURL: { opened = $0; return false }))
+        try await model.load()
+        let first = model.lines[0].id, second = model.lines[1].id
+        model.editReminder(lineID: first, reminder: Reminder(rule: .daily(localMinute: -1, timeZoneIdentifier: "UTC"), isEnabled: true))
+        let failed = await model.saveReminder(lineID: first)
+        XCTAssertFalse(failed)
+        model.editReminder(lineID: second, reminder: Reminder(rule: .oneTime(.distantFuture), isEnabled: true))
+        let saved = await model.saveReminder(lineID: second)
+        XCTAssertTrue(saved)
+        XCTAssertTrue(model.reminderErrors.contains(first))
+        XCTAssertFalse(model.reminderErrors.contains(second))
+        XCTAssertNil(model.reminderStates[first])
+        XCTAssertEqual(model.reminderStates[second], .permissionRequired)
+        model.openNotificationSettings(lineID: second)
+        XCTAssertEqual(opened?.absoluteString, "x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+        XCTAssertTrue(model.settingsOpenErrors.contains(second))
+        XCTAssertFalse(model.settingsOpenErrors.contains(first))
+    }
+    func testReturningFromSettingsRefreshesAuthorizationWithoutPrompt() async throws {
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
+        let center = EditorNotificationCenter()
+        let reminders = ReminderCoordinator(repository: f.repository, scheduler: UserNotificationScheduler(center: center))
+        let model = CardEditorModel(cardID: f.fixtureCardID, repository: f.repository, reminders: reminders)
+        try await model.load()
+        let id = model.lines[0].id
+        model.editReminder(lineID: id, reminder: Reminder(rule: .oneTime(.distantFuture), isEnabled: true))
+        _ = await model.saveReminder(lineID: id)
+        XCTAssertEqual(model.reminderStates[id], .permissionDenied)
+        await center.authorizeInSettings()
+        await model.refreshReminderAuthorization()
+        XCTAssertEqual(model.reminderStates[id], .scheduled)
+        let prompts = await center.prompts
+        XCTAssertEqual(prompts, 0)
+    }
     func testLocalCommitBroadcastsForLifecycleReconciliation() async throws {
         let repo = try await InMemoryPetalRepository.bootstrapped()
         let notification = expectation(forNotification: .petalRepositoryDidCommit, object: nil)
@@ -207,4 +279,23 @@ final class CardEditorModelTests: XCTestCase {
         let afterCount = try await repository.pendingOutboxCount()
         XCTAssertEqual(afterCount, beforeCount)
     }
+}
+
+private actor EditorNotificationCenter: NotificationCenterAdapter {
+    var state: AuthorizationState = .denied
+    var prompts = 0
+    var requests: [ReminderRequest] = []
+    func authorizeInSettings() { state = .authorized }
+    func authorization() -> AuthorizationState { state }
+    func requestAuthorization() -> AuthorizationState { prompts += 1; return state }
+    func pending() -> [ReminderRequest] { requests }
+    func add(_ request: ReminderRequest) { requests.append(request) }
+    func remove(_ ids: [String]) { requests.removeAll { ids.contains($0.id) } }
+    func removeDelivered(_ ids: [String]) {}
+    func registerActions() {}
+}
+
+private actor LaunchActionRecorder: NotificationActionHandling {
+    var actions: [NotificationAction] = []
+    func handle(_ action: NotificationAction, lineID: LineID, cardID: CardID) { actions.append(action) }
 }

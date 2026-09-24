@@ -7,6 +7,7 @@ import PetalActions
 
 struct RootView: View {
     let capture: QuickCaptureAppController
+    let notificationBroker: NotificationResponseBroker
     @Environment(\.openWindow) private var openWindow
     @State private var router: AppRouter?
     @State private var startupError: String?
@@ -166,7 +167,7 @@ struct RootView: View {
                     await links.handle(url)
                 }
                 capture.openFromLaunchArguments()
-                await runtime.start()
+                await runtime.start(broker: notificationBroker)
             } catch {
                 startupError = error.localizedDescription
             }

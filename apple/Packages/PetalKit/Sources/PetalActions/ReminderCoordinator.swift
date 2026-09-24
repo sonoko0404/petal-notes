@@ -33,6 +33,8 @@ public actor ReminderCoordinator: NotificationActionHandling, WidgetTodoAction {
     private let requestSync: @Sendable () async -> Void
     private let openURL: @Sendable (URL) async -> Void
     private var tail: Task<Void, Never>?
+    private var invalidationGeneration = 0
+    private var reconciliation: Task<ReconcileResult, Error>?
     public init(repository: any PetalRepository, scheduler: any ReminderScheduling,
                 now: @escaping @Sendable () -> Date = { .now }, calendar: @escaping @Sendable () -> Calendar = { .current },
                 reloadWidgets: @escaping @Sendable () async -> Void = {}, requestSync: @escaping @Sendable () async -> Void = {},
@@ -52,7 +54,35 @@ public actor ReminderCoordinator: NotificationActionHandling, WidgetTodoAction {
         return try await scheduler.reconcile(lines: lines, now: now(), calendar: calendar())
     }
     public func reconcile(_ reason: ReminderReconcileReason) async throws -> ReconcileResult {
-        try await ordered { try await self.refresh() }
+        try await invalidate(reason).value
+    }
+    /// A burst shares a single drain. An invalidation arriving during a read
+    /// advances the generation, forcing one more fresh pass before completion.
+    public func invalidate(_ reason: ReminderReconcileReason) -> Task<ReconcileResult, Error> {
+        invalidationGeneration += 1
+        if let reconciliation { return reconciliation }
+        let task = Task {
+            return try await ordered { try await self.drainInvalidations() }
+        }
+        reconciliation = task
+        return task
+    }
+    private func drainInvalidations() async throws -> ReconcileResult {
+        while true {
+            let generation = invalidationGeneration
+            do {
+                let result = try await refresh()
+                if generation == invalidationGeneration {
+                    reconciliation = nil
+                    return result
+                }
+            } catch {
+                if generation == invalidationGeneration {
+                    reconciliation = nil
+                    throw error
+                }
+            }
+        }
     }
     public func save(lineID: LineID, reminder: Reminder?) async throws -> ReconcileResult {
         try await ordered {
@@ -68,7 +98,7 @@ public actor ReminderCoordinator: NotificationActionHandling, WidgetTodoAction {
     public func setCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) async throws {
         try await ordered {
             try await self.repository.setWidgetCompleted(lineID: lineID, completed: completed, now: now, calendar: calendar)
-            if completed { await self.scheduler.cancel(lineID: lineID) }
+            if completed { try await self.scheduler.complete(lineID: lineID) }
             await self.reloadWidgets()
             await self.requestSync()
             _ = try await self.refresh()
@@ -84,7 +114,7 @@ public actor ReminderCoordinator: NotificationActionHandling, WidgetTodoAction {
             switch action {
             case .complete:
                 try await self.repository.setWidgetCompleted(lineID: lineID, completed: true, now: now, calendar: self.calendar())
-                await self.scheduler.cancel(lineID: lineID)
+                try await self.scheduler.complete(lineID: lineID)
             case .snoozeFiveMinutes:
                 guard var reminder = line.reminder, reminder.isEnabled,
                       !line.isCompleted || (line.completedAt.map { !self.calendar().isDate($0, inSameDayAs: now) } == true

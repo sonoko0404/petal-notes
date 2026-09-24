@@ -21,8 +21,11 @@ public final class NotificationResponseDelegate: NSObject, UNUserNotificationCen
         identifier == UNNotificationDefaultActionIdentifier ? .openCard : NotificationAction(rawValue: identifier)
     }
     public func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let action = Self.action(identifier: response.actionIdentifier),
-              let request = SystemNotificationCenter.decode(response.notification.request) else { return }
+        await receive(request: response.notification.request, actionIdentifier: response.actionIdentifier)
+    }
+    public func receive(request nativeRequest: UNNotificationRequest, actionIdentifier: String) async {
+        guard let action = Self.action(identifier: actionIdentifier),
+              let request = SystemNotificationCenter.decode(nativeRequest) else { return }
         do { try await handler.handle(action, lineID: request.lineID, cardID: request.cardID) }
         catch { await onFailure() }
     }

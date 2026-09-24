@@ -5,6 +5,28 @@ import PetalCore
 @testable import PetalNotifications
 
 struct NotificationAdapterTests {
+    @Test func nativeCalendarDSTContractMatchesPolicy() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        // Explicit future transition dates let nextTriggerDate probe native behavior
+        // without changing the host clock. Production daily components remain floating.
+        let year = calendar.component(.year, from: .now) + 1
+        let marchStart = calendar.date(from: DateComponents(year: year, month: 3, day: 8))!
+        let novemberStart = calendar.date(from: DateComponents(year: year, month: 11, day: 1))!
+        let spring = calendar.nextDate(after: marchStart.addingTimeInterval(-1), matching: DateComponents(weekday: 1), matchingPolicy: .nextTime)!
+        let fall = calendar.nextDate(after: novemberStart.addingTimeInterval(-1), matching: DateComponents(weekday: 1), matchingPolicy: .nextTime)!
+        for (day, minute, expectedHour, expectedMinute, expectedOffset) in [(spring, 150, 3, 30, -25200), (fall, 90, 1, 30, -25200)] {
+            var components = calendar.dateComponents([.year, .month, .day], from: day)
+            components.timeZone = calendar.timeZone
+            components.hour = minute / 60; components.minute = minute % 60; components.second = 0
+            let native = try #require(UNCalendarNotificationTrigger(dateMatching: components, repeats: true).nextTriggerDate())
+            #expect(calendar.component(.hour, from: native) == expectedHour)
+            #expect(calendar.component(.minute, from: native) == expectedMinute)
+            #expect(calendar.timeZone.secondsFromGMT(for: native) == expectedOffset)
+            #expect(ReminderPolicy.nextFireDate(rule: .daily(localMinute: minute, timeZoneIdentifier: "ignored"),
+                after: day.addingTimeInterval(-1), calendar: calendar) == native)
+        }
+    }
     @Test func foreignCategoryAndMismatchedIdentifierAreRejected() throws {
         let line = LineID(rawValue: UUID())
         let request = ReminderRequest(id: "line.\(line.rawValue)", cardID: CardID(rawValue: UUID()), lineID: line,
@@ -28,7 +50,8 @@ struct NotificationAdapterTests {
         #expect(trigger.dateComponents.hour == 9)
         #expect(trigger.dateComponents.minute == 30)
         #expect(trigger.dateComponents.day == nil)
-        #expect(trigger.dateComponents.timeZone?.identifier == "America/Los_Angeles")
+        #expect(trigger.dateComponents.timeZone == nil)
+        #expect(trigger.dateComponents.calendar == nil)
     }
     @Test func requestRoundTripPreservesAbsoluteTimeAndSoundDefaults() throws {
         let line = LineID(rawValue: UUID())

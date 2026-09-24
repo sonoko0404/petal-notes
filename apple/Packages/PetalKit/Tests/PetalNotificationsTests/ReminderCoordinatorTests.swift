@@ -13,6 +13,41 @@ actor ActionEvents {
     func open(_ url: URL) { urls.append(url) }
 }
 struct ReminderCoordinatorTests {
+    @Test func burstInvalidationsCoalesceAndNewestStoreStateIsNotLost() async throws {
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
+        let line = try #require(await f.repository.lines(cardID: f.fixtureCardID).first)
+        _ = try await f.repository.setReminder(lineID: line.id, reminder: Reminder(rule: .oneTime(.distantFuture), isEnabled: true), now: .now)
+        let center = FakeNotificationCenter(.authorized)
+        let coordinator = ReminderCoordinator(repository: f.repository, scheduler: UserNotificationScheduler(center: center))
+        await center.holdNextPendingRead()
+        let first = await coordinator.invalidate(.launch)
+        await center.waitForHeldPendingRead()
+        let current = try #require(await f.repository.lines(cardID: line.cardID).first)
+        _ = try await f.repository.updateLine(LineMutation(id: line.id, kind: .todo, text: "Newest", reminder: current.reminder), now: .now)
+        var waiting: [Task<ReconcileResult, Error>] = []
+        for _ in 0..<20 { waiting.append(await coordinator.invalidate(.localMutation)) }
+        await center.releasePendingRead()
+        _ = try await first.value
+        for task in waiting { _ = try await task.value }
+        #expect(await center.pendingReads == 2)
+        #expect(await center.requests.first?.body == "Newest")
+    }
+    @Test func deliveredDailyCompletionRetainsBaseAndDismissesDeliveredAndSnooze() async throws {
+        let now = DeterministicClock.referenceDate
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
+        let line = try #require(await f.repository.lines(cardID: f.fixtureCardID).first)
+        let center = FakeNotificationCenter(.authorized)
+        let coordinator = ReminderCoordinator(repository: f.repository, scheduler: UserNotificationScheduler(center: center), now: { now })
+        _ = try await coordinator.save(lineID: line.id, reminder: Reminder(rule: .daily(localMinute: 600, timeZoneIdentifier: "UTC"), isEnabled: true))
+        try await coordinator.handle(.snoozeFiveMinutes, lineID: line.id, cardID: line.cardID)
+        await center.deliver("line.\(line.id.rawValue)")
+        try await coordinator.handle(.complete, lineID: line.id, cardID: line.cardID)
+        #expect(await center.requests.count == 1)
+        #expect(await center.requests.first?.dailyComponents != nil)
+        #expect(await center.additions == 2)
+        #expect(await center.delivered.isEmpty)
+        #expect(try await f.repository.lines(cardID: line.cardID).first?.isCompleted == true)
+    }
     @Test func schedulingFailureIsSeparateFromDurableSave() async throws {
         let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
         let line = try #require(await f.repository.lines(cardID: f.fixtureCardID).first)

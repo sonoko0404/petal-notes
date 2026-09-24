@@ -41,19 +41,17 @@ struct AppEnvironment {
 @MainActor @Observable
 final class AppReminderRuntime {
     let coordinator: ReminderCoordinator
-    private let center: SystemNotificationCenter
     private(set) var state: ReconcileResult?
     private(set) var actionFailed = false
     init(repository: any PetalRepository) {
         let center = SystemNotificationCenter()
-        self.center = center
         coordinator = ReminderCoordinator(repository: repository,
             scheduler: UserNotificationScheduler(center: center, soundEnabled: {
                 ReminderSoundPreference.isEnabled
             }), reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() })
     }
-    func start() async {
-        await center.installResponseHandler(coordinator) { [weak self] in
+    func start(broker: NotificationResponseBroker) async {
+        await broker.install(coordinator) { [weak self] in
             await self?.recordActionFailure()
         }
         await reconcile(.launch)

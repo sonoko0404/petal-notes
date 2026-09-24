@@ -5,12 +5,9 @@ import PetalCore
 /// The framework object stays inside this actor; only domain values cross it.
 public actor SystemNotificationCenter: NotificationCenterAdapter {
     private let center = UNUserNotificationCenter.current()
-    private var responseDelegate: NotificationResponseDelegate?
     public init() {}
-    public func installResponseHandler(_ handler: any NotificationActionHandling, onFailure: @escaping @Sendable () async -> Void) {
-        let delegate = NotificationResponseDelegate(handler: handler, onFailure: onFailure)
-        responseDelegate = delegate
-        center.delegate = delegate
+    @MainActor public static func installLaunchDelegate(_ delegate: NotificationResponseDelegate) {
+        UNUserNotificationCenter.current().delegate = delegate
     }
     public func authorization() async -> AuthorizationState {
         switch await center.notificationSettings().authorizationStatus {
@@ -43,6 +40,9 @@ public actor SystemNotificationCenter: NotificationCenterAdapter {
             ids.contains($0.identifier) && Self.decode($0)?.isPetalOwned == true
         }.map(\.identifier)
         center.removePendingNotificationRequests(withIdentifiers: owned)
+        await removeDelivered(ids)
+    }
+    public func removeDelivered(_ ids: [String]) async {
         let delivered = await center.deliveredNotifications().filter {
             ids.contains($0.request.identifier) && Self.decode($0.request)?.isPetalOwned == true
         }.map { $0.request.identifier }

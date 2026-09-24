@@ -1,6 +1,9 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Completing early may still allow today's reminder. Future daily reminders continue.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Completing early may still allow today's reminder. Future daily reminders continue."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"提前完成后，当天仍可能收到一次提醒。以后的每日提醒会继续。"}}}},
+    "Open Notification Settings": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Open Notification Settings"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"打开通知设置"}}}},
+    "Unable to open System Settings. Open Notifications in System Settings manually.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Unable to open System Settings. Open Notifications in System Settings manually."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法打开系统设置，请手动进入系统设置中的“通知”。"}}}},
     "Reminder": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Reminder"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"提醒"}}}},
     "Enable Reminder": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Enable Reminder"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"启用提醒"}}}},
     "Repeat Daily": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Repeat Daily"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每天重复"}}}},

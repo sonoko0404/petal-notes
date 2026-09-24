@@ -46,7 +46,7 @@ import Testing
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
     let after = calendar.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 1, minute: 59))!
-    let expected = calendar.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 3))!
+    let expected = calendar.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 3, minute: 30))!
 
     #expect(ReminderPolicy.nextFireDate(
         rule: .daily(localMinute: 150, timeZoneIdentifier: "America/Los_Angeles"),

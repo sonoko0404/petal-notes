@@ -17,10 +17,12 @@ enum EditorError: Error { case pendingSaveFailed, transitionInProgress }
 final class CardEditorModel {
     struct ReminderDraft: Equatable { var value: Reminder? }
     private(set) var reminderDrafts: [LineID: ReminderDraft] = [:]
-    private(set) var reminderState: ReconcileResult?
-    private(set) var reminderError = false
+    private(set) var reminderStates: [LineID: ReconcileResult] = [:]
+    private(set) var reminderErrors: Set<LineID> = []
+    private(set) var settingsOpenErrors: Set<LineID> = []
     private(set) var isSavingReminder = false
     @ObservationIgnored private let reminders: ReminderCoordinator?
+    @ObservationIgnored private let settingsOpener: NotificationSettingsOpener
     let cardID: CardID
     private let repository: any PetalRepository
     private(set) var title = ""
@@ -39,10 +41,12 @@ final class CardEditorModel {
     @ObservationIgnored private var submissionWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private var newLineRevision = 0
 
-    init(cardID: CardID, repository: any PetalRepository, reminders: ReminderCoordinator? = nil) {
+    init(cardID: CardID, repository: any PetalRepository, reminders: ReminderCoordinator? = nil,
+         settingsOpener: NotificationSettingsOpener = .system) {
         self.cardID = cardID
         self.repository = repository
         self.reminders = reminders
+        self.settingsOpener = settingsOpener
     }
 
     func editReminder(lineID: LineID, reminder: Reminder?) {
@@ -58,16 +62,31 @@ final class CardEditorModel {
         defer { isSavingReminder = false }
         do {
             guard await flushPending() else { throw EditorError.pendingSaveFailed }
-            if let reminders { reminderState = try await reminders.save(lineID: lineID, reminder: draft.value) }
+            if let reminders { reminderStates[lineID] = try await reminders.save(lineID: lineID, reminder: draft.value) }
             else {
                 _ = try await repository.setReminder(lineID: lineID, reminder: draft.value, now: .now)
-                reminderState = .permissionRequired
+                reminderStates[lineID] = .permissionRequired
             }
             lines = try await repository.lines(cardID: cardID)
             reminderDrafts.removeValue(forKey: lineID)
-            reminderError = false
+            reminderErrors.remove(lineID)
             return true
-        } catch { reminderError = true; return false }
+        } catch { reminderErrors.insert(lineID); return false }
+    }
+
+    func openNotificationSettings(lineID: LineID) {
+        if settingsOpener.open() { settingsOpenErrors.remove(lineID) }
+        else { settingsOpenErrors.insert(lineID) }
+    }
+
+    func refreshReminderAuthorization() async {
+        guard let reminders else { return }
+        let result: ReconcileResult
+        do { result = try await reminders.reconcile(.foreground) }
+        catch { result = .schedulingFailed }
+        for line in lines where line.kind == .todo && line.reminder?.isEnabled == true {
+            reminderStates[line.id] = result
+        }
     }
 
     func setTransitionLocked(_ locked: Bool) { isTransitionLocked = locked }
@@ -100,7 +119,11 @@ final class CardEditorModel {
         guard !isTransitionLocked else { throw EditorError.transitionInProgress }
         guard status != .trashed else { throw RepositoryError.cardUnavailable }
         guard await flushPending() else { throw EditorError.pendingSaveFailed }
-        try await repository.setCompleted(lineID: lineID, completed: completed, now: .now)
+        if let reminders, status == .active {
+            try await reminders.setCompleted(lineID: lineID, completed: completed, now: .now, calendar: .current)
+        } else {
+            try await repository.setCompleted(lineID: lineID, completed: completed, now: .now)
+        }
         lines = try await repository.lines(cardID: cardID)
     }
 

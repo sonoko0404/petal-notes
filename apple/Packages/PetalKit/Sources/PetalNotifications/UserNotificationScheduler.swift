@@ -33,21 +33,20 @@ public actor UserNotificationScheduler: ReminderScheduling {
                 for line in lines where line.kind == .todo && line.deletedAt == nil {
                     guard let reminder = line.reminder, reminder.isEnabled else { continue }
                     try reminder.validate()
-                    if line.isCompleted {
-                        guard case .daily = reminder.rule, let completed = line.completedAt,
-                              !calendar.isDate(completed, inSameDayAs: now) else { continue }
-                    }
+                    let isDaily: Bool = { if case .daily = reminder.rule { return true }; return false }()
+                    if line.isCompleted && !isDaily { continue }
+                    let completedToday = line.isCompleted && line.completedAt.map { calendar.isDate($0, inSameDayAs: now) } == true
                     let base = ReminderRequest.baseID(line.id)
                     if let date = ReminderPolicy.nextFireDate(rule: reminder.rule, after: now, calendar: calendar) {
                         var request = ReminderRequest(id: base, cardID: line.cardID, lineID: line.id,
                             body: line.text, fireDate: date, sound: soundEnabled())
                         if case .daily(let minute, _) = reminder.rule {
-                            request.dailyComponents = DateComponents(calendar: calendar, timeZone: calendar.timeZone,
-                                hour: minute / 60, minute: minute % 60, second: 0)
+                            // Floating local time follows system travel without an app relaunch.
+                            request.dailyComponents = DateComponents(hour: minute / 60, minute: minute % 60, second: 0)
                         }
                         desired.append(request)
                     }
-                    if let snooze = reminder.snoozedUntil, snooze > now {
+                    if !completedToday, let snooze = reminder.snoozedUntil, snooze > now {
                         desired.append(ReminderRequest(id: base + ".snooze", cardID: line.cardID, lineID: line.id,
                             body: line.text, fireDate: snooze, sound: soundEnabled()))
                     }
@@ -77,6 +76,20 @@ public actor UserNotificationScheduler: ReminderScheduling {
         }
         tail = task
         await task.value
+    }
+    public func complete(lineID: LineID) async throws {
+        let preceding = tail
+        let task = Task { [center] in
+            await preceding?.value
+            let base = ReminderRequest.baseID(lineID)
+            let hasDailyBase = try await center.pending().contains {
+                $0.isPetalOwned && $0.id == base && $0.dailyComponents != nil
+            }
+            await center.remove(hasDailyBase ? [base + ".snooze"] : [base, base + ".snooze"])
+            await center.removeDelivered([base, base + ".snooze"])
+        }
+        tail = Task { _ = try? await task.value }
+        try await task.value
     }
     public func cancelAll() async throws {
         let preceding = tail

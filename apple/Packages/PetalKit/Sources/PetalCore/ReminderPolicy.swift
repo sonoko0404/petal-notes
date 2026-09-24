@@ -11,7 +11,7 @@ public enum ReminderPolicy {
             guard let firstToday = calendar.nextDate(
                 after: todayStart.addingTimeInterval(-1),
                 matching: matching,
-                matchingPolicy: .nextTime,
+                matchingPolicy: .nextTimePreservingSmallerComponents,
                 repeatedTimePolicy: .first
             ) else { return nil }
             if firstToday > date { return firstToday }
@@ -22,7 +22,7 @@ public enum ReminderPolicy {
             return calendar.nextDate(
                 after: tomorrowStart.addingTimeInterval(-1),
                 matching: matching,
-                matchingPolicy: .nextTime,
+                matchingPolicy: .nextTimePreservingSmallerComponents,
                 repeatedTimePolicy: .first
             )
         }

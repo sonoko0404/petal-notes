@@ -1,6 +1,16 @@
 import SwiftUI
 import PetalCore
 import PetalNotifications
+import AppKit
+
+@MainActor
+struct NotificationSettingsOpener {
+    var openURL: @MainActor (URL) -> Bool
+    static let system = NotificationSettingsOpener(openURL: { NSWorkspace.shared.open($0) })
+    func open() -> Bool {
+        openURL(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
+    }
+}
 
 struct ReminderEditorView: View {
     let line: CardLine
@@ -15,16 +25,27 @@ struct ReminderEditorView: View {
             Text("Reminder").font(.headline)
             Toggle("Enable Reminder", isOn: $enabled)
             Toggle("Repeat Daily", isOn: $daily)
+            if daily {
+                Text("Completing early may still allow today's reminder. Future daily reminders continue.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             DatePicker("Reminder Time", selection: $date, displayedComponents: daily ? [.hourAndMinute] : [.date, .hourAndMinute])
                 .accessibilityIdentifier("reminder.time")
-            if model.reminderError { Text("Unable to save reminder. Your input is kept.").foregroundStyle(.red) }
-            if let state = model.reminderState {
+            if model.reminderErrors.contains(line.id) { Text("Unable to save reminder. Your input is kept.").foregroundStyle(.red) }
+            if let state = model.reminderStates[line.id] {
                 switch state {
-                case .permissionDenied: Text("Reminder saved. Notifications are disabled in System Settings.")
+                case .permissionDenied:
+                    Text("Reminder saved. Notifications are disabled in System Settings.")
+                    Button("Open Notification Settings") { model.openNotificationSettings(lineID: line.id) }
+                        .accessibilityIdentifier("reminder.openSettings")
+                        .keyboardShortcut(",", modifiers: [.command])
                 case .permissionRequired: Text("Reminder saved. Notification permission is needed.")
                 case .schedulingFailed: Text("Reminder saved. Scheduling failed. Save again to retry.").foregroundStyle(.red)
                 case .scheduled: Text("Reminder saved.")
                 }
+            }
+            if model.settingsOpenErrors.contains(line.id) {
+                Text("Unable to open System Settings. Open Notifications in System Settings manually.").foregroundStyle(.red)
             }
             HStack {
                 Button("Close") { dismiss() }
@@ -44,6 +65,10 @@ struct ReminderEditorView: View {
         .padding(24).frame(width: 420)
         .disabled(model.isSavingReminder)
         .interactiveDismissDisabled(model.isSavingReminder)
+        .task { await model.refreshReminderAuthorization() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.refreshReminderAuthorization() }
+        }
         .onAppear {
             let reminder = model.reminderDrafts[line.id]?.value ?? line.reminder
             if let reminder {

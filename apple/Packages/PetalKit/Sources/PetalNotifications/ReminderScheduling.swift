@@ -37,6 +37,7 @@ public protocol NotificationCenterAdapter: Sendable {
     func pending() async throws -> [ReminderRequest]
     func add(_ request: ReminderRequest) async throws
     func remove(_ ids: [String]) async
+    func removeDelivered(_ ids: [String]) async
     func registerActions() async
 }
 
@@ -44,5 +45,6 @@ public protocol ReminderScheduling: Sendable {
     func authorizeForExplicitSave() async throws -> AuthorizationState
     func reconcile(lines: [CardLine], now: Date, calendar: Calendar) async throws -> ReconcileResult
     func cancel(lineID: LineID) async
+    func complete(lineID: LineID) async throws
     func cancelAll() async throws
 }
