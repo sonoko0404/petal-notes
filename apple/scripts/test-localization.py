@@ -205,4 +205,110 @@ class LocalizationVerificationTests(unittest.TestCase):
         self.mutate('PetalChecklist/Settings/PrivacyView.swift', 'Text("privacy.body")', 'Text("privacy.body"); Text("ui.open_card.32bf59", tableName: "Widgets")')
         self.assertEqual(module.verify(self.root), [])
 
+    def test_state_message_rejects_existing_wrong_table(self):
+        self.mutate(WIDGET_VIEW, 'Text(stateMessage, tableName: "Widgets")', 'Text(stateMessage, tableName: "InfoPlist")')
+        self.assertRejected('dynamic lookup contract')
+
+    def test_badge_label_rejects_existing_wrong_table(self):
+        self.mutate(WIDGET_VIEW, 'Text(label, tableName: "Widgets")', 'Text(label, tableName: "InfoPlist")')
+        self.assertRejected('dynamic lookup contract')
+
+    def test_state_message_requires_explicit_widgets_table(self):
+        self.mutate(WIDGET_VIEW, 'Text(stateMessage, tableName: "Widgets")', 'Text(stateMessage)')
+        self.assertRejected('dynamic lookup contract')
+
+    def test_state_message_rejects_wrong_bundle(self):
+        self.mutate(WIDGET_VIEW, 'Text(stateMessage, tableName: "Widgets")', 'Text(stateMessage, tableName: "Widgets", bundle: .module)')
+        self.assertRejected('dynamic lookup contract')
+
+    def test_state_message_missing_branch_is_rejected(self):
+        self.mutate(WIDGET_VIEW, 'case .normal, .empty:', 'case .normal:')
+        self.assertRejected('dynamic producer contract')
+
+    def test_state_message_new_unhandled_enum_case_is_rejected(self):
+        self.mutate('Packages/PetalKit/Sources/PetalCore/WidgetSnapshot.swift', 'case normal, empty, archived, trashed, unavailable, persistenceError', 'case normal, empty, archived, trashed, unavailable, persistenceError, loading')
+        self.assertRejected('dynamic enum contract')
+
+    def test_badge_new_enum_case_cannot_hide_in_ternary_fallback(self):
+        self.mutate('Packages/PetalKit/Sources/PetalCore/WidgetSnapshot.swift', 'case syncing, offline, failed', 'case syncing, offline, failed, paused')
+        self.assertRejected('dynamic enum contract')
+
+    def test_badge_label_branch_key_cannot_silently_change(self):
+        # Keep the prior key present in a valid independent lookup; this test
+        # must detect the changed branch, not merely report an unused key.
+        self.mutate(WIDGET_VIEW, 'let label: LocalizedStringKey = badge == .syncing ? "ui.syncing.5c8b9e"', 'let preserved = Text("ui.syncing.5c8b9e", tableName: "Widgets"); let label: LocalizedStringKey = badge == .syncing ? "ui.offline.a17947"')
+        self.assertRejected('dynamic producer contract')
+
+    def test_dynamic_key_moved_to_other_catalog_does_not_reassign_owner(self):
+        key = 'ui.offline.a17947'
+        value = json.loads((self.root/WIDGET).read_text())['strings'][key]
+        self.edit_catalog(WIDGET, lambda d: d['strings'].pop(key))
+        self.edit_catalog(WIDGET_INFO, lambda d: d['strings'].update({key: value}))
+        self.assertRejected('dynamic lookup key')
+
+    def test_badge_table_owner_is_required_even_if_keys_exist_in_other_table(self):
+        source = json.loads((self.root/WIDGET).read_text())['strings']
+        keys = ['ui.syncing.5c8b9e', 'ui.offline.a17947', 'ui.sync_failed.abf3e8']
+        self.edit_catalog(WIDGET_INFO, lambda d: d['strings'].update({key: source[key] for key in keys}))
+        self.mutate(WIDGET_VIEW, 'Text(label, tableName: "Widgets")', 'Text(label, tableName: "InfoPlist")')
+        self.assertRejected('dynamic lookup contract')
+
+    def test_app_scope_lookup_rejects_existing_shared_wrong_table(self):
+        self.mutate('PetalChecklist/CardLibrary/CardLibraryView.swift', 'Text(scopeName(model.scope))', 'Text(scopeName(model.scope), tableName: "Widgets")')
+        self.assertRejected('dynamic lookup contract')
+
+    def test_app_status_lookup_rejects_existing_wrong_table(self):
+        self.mutate('PetalChecklist/Settings/SyncSettingsView.swift', 'Text(model.statusKey)', 'Text(model.statusKey, tableName: "InfoPlist")')
+        self.assertRejected('dynamic lookup contract')
+
+    def test_app_scope_new_unhandled_case_is_rejected(self):
+        self.mutate('PetalChecklist/Navigation/AppRouter.swift', 'case inbox, allCards, archive, trash, settings', 'case inbox, allCards, archive, trash, settings, recent')
+        self.assertRejected('dynamic enum contract')
+
+    def test_app_sync_failure_new_case_requires_reviewed_copy(self):
+        self.mutate('Packages/PetalKit/Sources/PetalCore/SyncState.swift', 'case quotaExceeded', 'case quotaExceeded\n    case accountDisabled')
+        self.assertRejected('dynamic enum contract')
+
+    def test_new_dynamic_localized_lookup_needs_closed_contract(self):
+        self.mutate(WIDGET_VIEW, 'Text(stateMessage, tableName: "Widgets")', 'Text(stateMessage, tableName: "Widgets"); Text(otherKey, tableName: "Widgets")')
+        self.assertRejected('uncontracted dynamic lookup')
+
+    def test_new_typed_key_producer_cannot_be_assumed_from_source_directory(self):
+        self.mutate(WIDGET_VIEW, 'Text(stateMessage, tableName: "Widgets")', 'Text(stateMessage, tableName: "Widgets"); let extra: LocalizedStringKey = "ui.offline.a17947"; Text(extra)')
+        self.assertRejected('uncontracted typed key producer')
+
+    def test_dynamic_forwarder_cannot_use_a_different_key_expression(self):
+        self.mutate('Packages/PetalKit/Sources/PetalCore/PetalStrings.swift', 'forKey: key', 'forKey: key + "suffix"')
+        self.assertRejected('uncontracted dynamic lookup')
+
+    def test_inline_key_selection_cannot_hide_a_variable_branch(self):
+        self.mutate(WIDGET_VIEW, 'Text(line.isCompleted ? "ui.completed.22a970" : "ui.incomplete.75f33c", tableName: "Widgets")', 'Text(line.isCompleted ? "ui.completed.22a970" : anotherKey, tableName: "Widgets"); Text("ui.incomplete.75f33c", tableName: "Widgets")')
+        self.assertRejected('uncontracted dynamic lookup')
+
+    def test_forwarded_dynamic_key_set_cannot_expand_from_catalog_alone(self):
+        source = json.loads((self.root/CORE).read_text())['strings']['ui.inbox.94835e']
+        self.edit_catalog(CORE, lambda d: d['strings'].update({'ui.new_core_key': source}))
+        self.mutate('Packages/PetalKit/Sources/PetalPersistence/SwiftDataPetalRepository.swift', 'PetalStrings.text("ui.inbox.94835e")', 'PetalStrings.text("ui.new_core_key")')
+        self.assertRejected('dynamic forwarder key')
+
+    def test_duplicate_variable_lookup_requires_a_separate_reviewed_site(self):
+        self.mutate(WIDGET_VIEW, 'Text(stateMessage, tableName: "Widgets")', 'Text(stateMessage, tableName: "Widgets"); Text(stateMessage, tableName: "Widgets")')
+        self.assertRejected('dynamic lookup site count')
+
+    def test_new_implicit_typed_key_consumer_needs_its_own_contract(self):
+        self.mutate(WIDGET_VIEW, 'Text(stateMessage, tableName: "Widgets")', 'Text(stateMessage, tableName: "Widgets"); Button(stateMessage) {}')
+        self.assertRejected('uncontracted dynamic lookup')
+
+    def test_untyped_alias_cannot_hide_a_localized_key(self):
+        self.mutate(WIDGET_VIEW, 'Text(stateMessage, tableName: "Widgets")', 'Text(stateMessage, tableName: "Widgets"); let alias = stateMessage; Text(alias)')
+        self.assertRejected('uncontracted typed key producer')
+
+    def test_badge_producer_input_cannot_change_to_an_unreviewed_domain(self):
+        self.mutate(WIDGET_VIEW, 'badgeView(_ badge: WidgetSyncBadge)', 'badgeView(_ badge: OtherBadge)')
+        self.assertRejected('dynamic input contract')
+
+    def test_card_state_property_cannot_change_to_an_unreviewed_domain(self):
+        self.mutate('Packages/PetalKit/Sources/PetalCore/WidgetSnapshot.swift', 'let cardState: WidgetCardState', 'let cardState: OtherState')
+        self.assertRejected('dynamic input contract')
+
 if __name__ == '__main__': unittest.main()

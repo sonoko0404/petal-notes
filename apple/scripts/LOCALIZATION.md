@@ -42,16 +42,55 @@ in other packages. The Markdown export's one-line wrapper is recognized only
 when it delegates to this checked helper. Changing these helper shapes requires
 updating this contract and adding mutations; they are not allowlisted strings.
 
-This is a static checker, not a complete Swift parser/type checker. The current
-Widget's typed key branches are checked against Widgets, while each receiving
-call's explicit table/bundle is checked independently. Arbitrary runtime-built
-keys, future custom wrappers, or new raw/multiline-string syntax require manual
-review and scanner tests. User-authored content and preview/test fixtures are
-not catalog identities. The framework-localized allowlist is deliberately
+## Closed dynamic-key contracts
+
+`localization-dynamic-contracts.json` binds each current dynamic lookup to a
+closed key set, required table, required bundle, source path, callee, and exact
+key expression (Swift tokens, insensitive to whitespace/comments). Each listed
+receiving site must occur exactly once. Table existence alone is insufficient:
+`Text(stateMessage, tableName: "InfoPlist")` fails even if every state key is
+copied into that existing table.
+
+| Producer | Closed keys | Receiving sites | Required bundle/table |
+| --- | ---: | ---: | --- |
+| Widget stateMessage | 5 | 1 | PetalWidgets/Widgets |
+| Widget badge label | 3 | 1 | PetalWidgets/Widgets |
+| App scopeName | 5 | 3 | PetalChecklist/Localizable |
+| App statusKey | 7 | 1 | PetalChecklist/Localizable |
+| Widget completion ternary | 2 | 1 | PetalWidgets/Widgets |
+| App reset-action ternary | 2 | 1 | PetalChecklist/Localizable |
+| Core key forwarder | 6 | 1 | PetalKit_PetalCore/Localizable |
+| Markdown key forwarder | 4 | 1 | PetalKit_PetalCore/Localizable |
+
+The four typed producer bodies are checked against the reviewed token-level
+branch definitions and their declared key sets. The relevant input bindings
+and complete `WidgetCardState`, `WidgetSyncBadge`, `LibraryScope`, `SyncState`,
+and `SyncFailure` domains are checked too. Thus even a new badge case that Swift
+would silently route through the final ternary branch requires localization
+review. A new nested sync failure similarly cannot silently inherit fallback
+copy. Literal inputs to the forwarding helpers must belong to their closed
+sets; new dynamically computed inputs fail until a separate contract is added.
+
+All `LocalizedStringKey` declarations must be contracted. New consumers of a
+known typed key, inferred aliases of those keys, duplicate/missing receiving
+sites, and uncontracted explicit dynamic localization calls fail closed. Swift
+`String` user content or already-translated text displayed by `Text` is not a
+localized-key lookup. Nested `Text` passed to an accessibility modifier is
+checked at its lookup, not incorrectly treated as another key.
+
+This is a bounded static checker, not a complete Swift parser/type checker.
+Changes to producer branch shapes, enum domains, forwarding sets, or call sites
+require explicit contract review and independent mutations. Future custom APIs
+or unsupported Swift syntax require scanner tests; this is not a proof for
+arbitrary third-party Swift. User-authored content and preview/test fixtures
+are not catalog identities. The framework-localized allowlist is deliberately
 empty; any future entry must be an individually documented Apple/framework
 lookup, never an application key or source-file exemption.
 
 Mutation tests copy real production files. Their six expected paths and
 InfoPlist keys are independently spelled out, not loaded from the manifest.
 Positive controls also exercise explicit main/module bundles and the App's
-intentionally shared Widgets table.
+intentionally shared Widgets table. Dynamic-key mutations change production
+Swift/catalog inputs only; they never rewrite the contracts to agree with the
+mutation. Producer/branch deletion, enum widening, wrong existing tables,
+wrong bundles, moved keys, aliases, and forwarding-set widening are covered.
