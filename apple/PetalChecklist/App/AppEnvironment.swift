@@ -7,6 +7,10 @@ import Observation
 import WidgetKit
 
 struct AppEnvironment {
+    static func testStore(directory: URL?) throws -> PetalStore {
+        guard let directory else { return try ModelContainerFactory.makeInMemory() }
+        return try ModelContainerFactory.makeShared(appGroupID: "performance.fixture", containerURL: { _ in directory })
+    }
     let repository: any PetalSyncRepository & PetalTransferRepository
     var onboardingPending = false
     var completeOnboarding: () async throws -> Void = {}
@@ -21,7 +25,8 @@ struct AppEnvironment {
         let testing = isTestRun
         let store: PetalStore
         if testing {
-            store = try ModelContainerFactory.makeInMemory()
+            let directory = ProcessInfo.processInfo.environment["PETAL_UI_TEST_STORE"].map { URL(fileURLWithPath: $0) }
+            store = try testStore(directory: directory)
         } else {
             let groupID = Bundle.main.object(forInfoDictionaryKey: "PetalAppGroupIdentifier") as? String
             store = try ModelContainerFactory.makeShared(appGroupID: groupID ?? "")

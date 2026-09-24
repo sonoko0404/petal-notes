@@ -12,8 +12,11 @@ struct CardLibraryView: View {
             HStack {
                 Text(scopeName(model.scope)).font(.headline)
                 Spacer()
-                Button(action: onCreate) { Image(systemName: "plus") }
+                Button(action: onCreate) {
+                    Image(systemName: "plus").frame(minWidth: 28, minHeight: 28).contentShape(Rectangle())
+                }
                     .accessibilityLabel(Text("ui.new_card.df1e64"))
+                    .accessibilityValue(Text("ui.new_card.df1e64"))
                     .accessibilityIdentifier("card.create")
             }.padding()
             TextField("ui.search.49c266", text: Binding(get: { model.query }, set: { model.setQuery($0) }))

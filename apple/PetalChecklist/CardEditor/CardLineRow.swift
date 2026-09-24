@@ -15,9 +15,13 @@ struct CardLineRow: View {
                 Button {
                     Task { do { try await model.setCompleted(lineID: line.id, completed: !line.isCompleted) }
                         catch { onError(error) } }
-                } label: { Image(systemName: line.isCompleted ? "checkmark.circle.fill" : "circle") }
+                } label: {
+                    Image(systemName: line.isCompleted ? "checkmark.circle.fill" : "circle")
+                        .frame(minWidth: 28, minHeight: 28).contentShape(Rectangle())
+                }
                     .buttonStyle(.plain)
                     .accessibilityLabel(line.isCompleted ? Text("ui.mark_incomplete.331426") : Text("ui.complete_todo.70bfc6"))
+                    .accessibilityValue(line.isCompleted ? Text("ui.completed.22a970", tableName: "Widgets") : Text("ui.incomplete.75f33c", tableName: "Widgets"))
                     .accessibilityIdentifier(line.isCompleted ? "line.incomplete" : "line.complete")
             } else {
                 Image(systemName: "text.alignleft").accessibilityHidden(true)
@@ -52,8 +56,10 @@ struct CardLineRow: View {
                 Button("ui.move_down.b58330") { move(.down) }.accessibilityIdentifier("line.moveDown")
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .accessibilityLabel(Text("ui.line_actions.336265"))
+                    .frame(minWidth: 28, minHeight: 28).contentShape(Rectangle())
             }
+            .accessibilityLabel(Text("ui.line_actions.336265"))
+            .accessibilityValue(line.kind == .todo ? Text("ui.todo.4ff402") : Text("ui.text.71988c"))
             .accessibilityIdentifier(line.kind == .todo ? "line.kind.todo" : "line.kind.text")
         }
         .onMoveCommand { direction in

@@ -23,6 +23,7 @@ struct RootView: View {
     @State private var resetModel: ResetSettingsModel?
     @State private var onboardingPending = false
     @State private var finishOnboarding: () async throws -> Void = {}
+    @State private var diagnostics: Diagnostics?
     @AppStorage("appearance.theme") private var theme = "cream"
     @AppStorage("appearance.typeface") private var typeface = "standard"
     @AppStorage("notificationSoundEnabled", store: ReminderSoundPreference.defaults) private var notificationSoundEnabled = false
@@ -86,6 +87,7 @@ struct RootView: View {
                             if let syncSettings { SyncSettingsView(model: syncSettings, resetModel: resetModel) }
                             if let dataTransfer { DataTransferView(model: dataTransfer) }
                             SupportSettingsView()
+                            DiagnosticsExportView()
                             Toggle("ui.notification_sound.4478aa", isOn: $notificationSoundEnabled)
                                 .onChange(of: notificationSoundEnabled) { _, _ in Task { await reminders?.reconcile(.localMutation) } }
                             Picker("ui.quick_capture_shortcut.6aa8d7", selection: Binding(
@@ -173,6 +175,10 @@ struct RootView: View {
         }
         .task {
             guard router == nil else { return }
+            if !AppEnvironment.isTestRun {
+                diagnostics = try? Diagnostics.local()
+                try? await diagnostics?.prune()
+            }
             do {
                 let opened = try await AppEnvironment.make()
                 onboardingPending = opened.onboardingPending
@@ -225,7 +231,17 @@ struct RootView: View {
                 await settings.sync(.launch)
             } catch {
                 startupError = PetalErrorCopy.message(error)
+                try? await diagnostics?.record(.current(subsystem: .storage, errorCode: .openFailed, syncState: .unknown))
             }
+        }
+        .onChange(of: dataTransfer?.failed) { _, failed in
+            if failed == true { Task { try? await diagnostics?.record(.current(subsystem: .transfer, errorCode: .saveFailed, syncState: .unknown)) } }
+        }
+        .onChange(of: syncSettings?.operationFailed) { _, failed in
+            if failed == true { Task { try? await diagnostics?.record(.current(subsystem: .sync, errorCode: .unavailable, syncState: .unknown)) } }
+        }
+        .onChange(of: reminders?.state) { _, state in
+            if state == .schedulingFailed { Task { try? await diagnostics?.record(.current(subsystem: .notifications, errorCode: .unavailable, syncState: .unknown)) } }
         }
         .onOpenURL { url in Task { await PetalNavigationRequests.shared.open(url) } }
         .onReceive(NotificationCenter.default.publisher(for: .petalCloudPushReceived).receive(on: DispatchQueue.main)) { _ in

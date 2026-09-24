@@ -1,6 +1,9 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "ui.export_diagnostics": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Export Diagnostics"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "导出诊断记录"}}}},
+    "ui.diagnostics_description": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Diagnostics contain only timestamps, error codes, sync state and version numbers. They stay on this Mac. Entries older than seven days are removed on next use. Export only when you choose."}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "诊断记录仅包含时间、错误代码、同步状态和版本号，仅保存在本机。超过七天的记录在下次使用时删除，仅在你选择时导出。"}}}},
+    "ui.diagnostics_export_failed": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Unable to export diagnostics. Choose another location and try again."}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法导出诊断记录。请选择其他位置并重试。"}}}},
     "ui.markdown_creates_a_new_petal_markdown_export_folder_ins.47f673": {
       "extractionState": "manual",
       "localizations": {

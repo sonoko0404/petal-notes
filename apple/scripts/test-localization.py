@@ -90,7 +90,7 @@ class LocalizationVerificationTests(unittest.TestCase):
         self.assertRejected('resource ownership')
 
     def test_widget_cannot_register_app_infoplist(self):
-        self.mutate('PetalChecklist.xcodeproj/project.pbxproj', 'files = (0000000000000000000000ED, 0000000000000000000000BE,)', 'files = (0000000000000000000000E7, 0000000000000000000000BE,)')
+        self.mutate('PetalChecklist.xcodeproj/project.pbxproj', '0000000000000000000000ED, 0000000000000000000000BE,', '0000000000000000000000E7, 0000000000000000000000BE,')
         self.assertRejected('resource ownership')
 
     def test_package_resources_must_be_processed(self):
