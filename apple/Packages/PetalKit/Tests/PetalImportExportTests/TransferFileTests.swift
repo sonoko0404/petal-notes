@@ -4,6 +4,34 @@ import PetalCore
 import PetalPersistence
 import PetalImportExport
 
+private final class TransferFilePresenter: NSObject, NSFilePresenter, @unchecked Sendable {
+    let presentedItemURL: URL?
+    let presentedItemOperationQueue = OperationQueue()
+    private let lock = NSLock()
+    private var count = 0
+    init(_ url: URL) { presentedItemURL = url; super.init() }
+    var coordinatedWrites: Int { lock.lock(); defer { lock.unlock() }; return count }
+    func relinquishPresentedItem(toWriter writer: @Sendable @escaping ((@Sendable () -> Void)?) -> Void) {
+        lock.lock(); count += 1; lock.unlock()
+        writer(nil)
+    }
+}
+
+@Test func jsonWriterCoordinatesOnlyTheSelectedFile() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let selected = root.appendingPathComponent("selected.json")
+    try Data("old".utf8).write(to: selected)
+    let presenter = TransferFilePresenter(selected)
+    NSFileCoordinator.addFilePresenter(presenter)
+    defer { NSFileCoordinator.removeFilePresenter(presenter) }
+    try TransferFileWriter.write(Data("new".utf8), to: selected)
+    #expect(presenter.coordinatedWrites > 0)
+    #expect(try Data(contentsOf: selected) == Data("new".utf8))
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["selected.json"])
+}
+
 @Test func importWritesUsableBackupBeforeCommitAndRetainsItOnSaveFailure() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -58,6 +86,7 @@ import PetalImportExport
     #expect(try await repository.cards(scope: .all).map(\.title) == ["Inbox"])
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: folder) }
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try await service.exportMarkdown(to: folder, languageCode: "en")
     #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 1)
 }
@@ -94,4 +123,32 @@ import PetalImportExport
     }
     #expect(try await repository.transferSnapshot() == before)
     #expect(try await repository.pendingOutbox() == outbox)
+}
+
+@Test(arguments: ["Due", "DeletedAt"])
+func invalidLegacyCalendarDateRejectsEntireFileBeforeBackup(_ field: String) async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    try await repository.bootstrap(now: transferNow)
+    let before = try await repository.transferSnapshot()
+    let journal = try await repository.pendingOutbox()
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try Data("previous backup".utf8).write(to: file)
+    defer { try? FileManager.default.removeItem(at: file) }
+    var object = try #require(JSONSerialization.jsonObject(with: windowsFixture()) as? [String: Any])
+    var notes = try #require(object["Notes"] as? [[String: Any]])
+    var bad = notes[0]
+    bad["Id"] = UUID().uuidString
+    if field == "Due" {
+        var reminder = try #require(bad["Reminder"] as? [String: Any])
+        reminder["Due"] = "2026-02-30T09:00:00+08:00"; bad["Reminder"] = reminder
+    } else { bad["DeletedAt"] = "2026-02-30T09:00:00+08:00" }
+    notes.append(bad); object["Notes"] = notes
+    let bytes = try JSONSerialization.data(withJSONObject: object)
+    await #expect(throws: TransferError.invalidDocument) {
+        try await DataTransferService(repository: repository).importWindows(bytes, backupURL: file,
+            settings: TransferSettings(), timeZone: .gmt, fallbackTitle: "Reminder", now: transferNow)
+    }
+    #expect(try await repository.transferSnapshot() == before)
+    #expect(try await repository.pendingOutbox() == journal)
+    #expect(try Data(contentsOf: file) == Data("previous backup".utf8))
 }

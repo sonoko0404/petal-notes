@@ -1,6 +1,7 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Markdown creates a new Petal Markdown Export folder inside the directory you choose.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Markdown creates a new Petal Markdown Export folder inside the directory you choose."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Markdown 会在您选择的目录内新建 Petal Markdown Export 文件夹。"}}}},
     "Data Transfer": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Data Transfer"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"导入与导出"}}}},
     "Import Windows Notes…": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Import Windows Notes…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"导入 Windows 便签…"}}}},
     "Export JSON Backup…": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Export JSON Backup…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"导出 JSON 备份…"}}}},

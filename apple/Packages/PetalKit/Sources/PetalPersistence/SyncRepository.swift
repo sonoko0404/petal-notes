@@ -37,6 +37,7 @@ public struct SyncSnapshot: Sendable {
 }
 
 struct LocalSyncMetadata: Codable {
+    var replacementPlaceholderID: UUID?
     var enabled = true
     var token: Data?
     var tombstones: [SyncTombstone] = []

@@ -45,10 +45,12 @@ public enum MarkdownExporter {
         return result
     }
 
-    public static func write(_ snapshot: TransferSnapshot, to folder: URL, languageCode: String = "en") throws {
+    /// `directory` is an existing directory explicitly granted by the user's picker.
+    public static func write(_ snapshot: TransferSnapshot, to directory: URL, languageCode: String = "en") throws {
         let documents = try documents(snapshot, languageCode: languageCode)
+        let folder = directory.appendingPathComponent("Petal Markdown Export", isDirectory: true)
         guard !FileManager.default.fileExists(atPath: folder.path) else { throw TransferError.destinationExists }
-        let staging = folder.deletingLastPathComponent().appendingPathComponent(".petal-export-\(UUID().uuidString)")
+        let staging = directory.appendingPathComponent(".petal-export-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false,
             attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: staging) }

@@ -55,10 +55,15 @@ public enum CloudRecordMapper {
         record["resetGeneration"] = value.generation.id.uuidString as CKRecordValue
         record["resetModifiedAt"] = value.generation.modifiedAt as CKRecordValue
         record["resetDeviceID"] = value.generation.deviceID as CKRecordValue
+        if value.generation.isReplacement { record["resetIsReplacement"] = 1 as CKRecordValue }
         return record
     }
 
     public static func decode(_ record: CKRecord) throws -> ReplicatedRecord {
+        if record["resetIsReplacement"] != nil,
+           record["resetIsReplacement"] as? Int64 != 0 && record["resetIsReplacement"] as? Int64 != 1 {
+            throw CloudTransportError.invalidRecord
+        }
         guard record.recordID.zoneID == zoneID,
               record["schemaVersion"] as? Int64 == 1, record["reminderVersion"] as? Int64 == 1,
               let payload = record["payload"] as? Data,
@@ -68,7 +73,8 @@ public enum CloudRecordMapper {
         }
         do {
             let value = ReplicatedRecord(payload: try JSONDecoder().decode(ReplicatedRecord.Payload.self, from: payload),
-                generation: ResetGeneration(id: id, modifiedAt: date, deviceID: device))
+                generation: ResetGeneration(id: id, modifiedAt: date, deviceID: device,
+                    isReplacement: record["resetIsReplacement"] as? Int64 == 1))
             let identity = identity(value)
             guard record.recordType == identity.type, record.recordID.recordName == identity.id.uuidString,
                   record["modifiedAt"] as? Date == identity.modifiedAt, record["revision"] as? Int64 == identity.revision,

@@ -97,13 +97,17 @@ struct DataTransferView: View {
                 HStack {
                     Button("Replace from Backup…") { restoreURL = openJSON() }.accessibilityIdentifier("transfer.restoreJSON")
                     Button("Export Markdown Folder…") {
-                        let panel = NSSavePanel()
+                        let panel = NSOpenPanel()
                         panel.title = String(localized: "Export Markdown Folder…")
-                        panel.nameFieldStringValue = "Petal Markdown Export"
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.allowsMultipleSelection = false
                         panel.canCreateDirectories = true
                         if panel.runModal() == .OK, let url = panel.url { Task { await model.run(.markdown(url)) } }
                     }.accessibilityIdentifier("transfer.exportMarkdown")
                 }
+                Text("Markdown creates a new Petal Markdown Export folder inside the directory you choose.")
+                    .font(.caption).foregroundStyle(.secondary)
                 if model.isRunning { ProgressView("Transferring Data…").accessibilityIdentifier("transfer.progress") }
                 if model.failed {
                     Text("Unable to transfer data. Check the file and destination, then retry. Markdown needs a new folder.")

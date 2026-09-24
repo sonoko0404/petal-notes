@@ -101,56 +101,10 @@ private actor RepositoryStore {
     func replaceUserData(_ snapshot: TransferSnapshot, now: Date) throws {
         try snapshot.validate()
         try transaction {
-            let cardIDs = Set(snapshot.cards.map(\.id))
-            let lineIDs = Set(snapshot.lines.map(\.id))
-            var oldCards: [CardID: PetalSchemaV1.StoredCard] = [:]
-            var oldLines: [LineID: PetalSchemaV1.StoredLine] = [:]
-            for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()) {
-                let id = LineID(rawValue: row.id)
-                if lineIDs.contains(id) { oldLines[id] = row }
-                else { try appendDeletion(entity: .line, id: row.id, now: now); context.delete(row) }
-            }
-            for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredCard>()) {
-                let id = CardID(rawValue: row.id)
-                if cardIDs.contains(id) { oldCards[id] = row }
-                else { try appendDeletion(entity: .card, id: row.id, now: now); context.delete(row) }
-            }
-            var metadata = try syncMetadata()
-            let restoredIDs = Set(cardIDs.map(\.rawValue) + lineIDs.map(\.rawValue))
-            let tombstoneDates = Dictionary(grouping: metadata.tombstones, by: \.entityID)
-            metadata.tombstones.removeAll { restoredIDs.contains($0.entityID) }
-            metadata.unresolvedLines = (metadata.unresolvedLines ?? []).filter {
-                if case .line(let line) = $0.payload { return !lineIDs.contains(line.id) }
-                return true
-            }
-            try syncMetadataRow().payload = JSONEncoder().encode(metadata)
-            for var card in snapshot.cards {
-                let old = try oldCards[card.id]?.value()
-                card.deviceID = try deviceID()
-                card.revision = (old?.revision ?? 0) + 1
-                card.modifiedAt = max(now, (old?.modifiedAt ?? now).addingTimeInterval(0.001),
-                    (tombstoneDates[card.id.rawValue]?.map(\.deletedAt).max() ?? now).addingTimeInterval(0.001))
-                try discardSupersededDeletion(entity: .card, id: card.id.rawValue)
-                let row = try oldCards[card.id] ?? PetalSchemaV1.StoredCard(card)
-                row.payload = try JSONEncoder().encode(card)
-                if oldCards[card.id] == nil { context.insert(row) }
-                try appendChange(entity: .card, id: row.id, payload: row.payload, now: now)
-            }
-            for var line in snapshot.lines {
-                let old = try oldLines[line.id]?.value()
-                line.deviceID = try deviceID()
-                line.revision = (old?.revision ?? 0) + 1
-                line.modifiedAt = max(now, (old?.modifiedAt ?? now).addingTimeInterval(0.001),
-                    (tombstoneDates[line.id.rawValue]?.map(\.deletedAt).max() ?? now).addingTimeInterval(0.001))
-                try discardSupersededDeletion(entity: .line, id: line.id.rawValue)
-                let row = try oldLines[line.id] ?? PetalSchemaV1.StoredLine(line)
-                row.cardID = line.cardID.rawValue
-                row.payload = try JSONEncoder().encode(line)
-                if oldLines[line.id] == nil { context.insert(row) }
-                try appendChange(entity: .line, id: row.id, payload: row.payload, now: now)
-            }
-            for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredImportFingerprint>()) { context.delete(row) }
-            try repairInbox(now: now)
+            let previous = try syncMetadata().generation
+            let generation = ResetGeneration(id: UUID(), modifiedAt: max(now, previous.modifiedAt.addingTimeInterval(0.001)),
+                deviceID: try deviceID(), isReplacement: true)
+            try resetContents(generation: generation, now: now, replacement: snapshot)
         }
     }
 
@@ -337,7 +291,7 @@ private actor RepositoryStore {
             }
             // A reset also cleans up stale records first discovered after the
             // local reset. The cleanup survives another offline failure.
-            for record in received where record.generation < metadata.generation {
+            for record in received where record.generation < metadata.generation && !metadata.generation.isReplacement {
                 let entity: SyncTombstone.Entity
                 let id: UUID
                 switch record.payload {
@@ -356,6 +310,19 @@ private actor RepositoryStore {
                     switch value.payload { case .userState: 0; case .tombstone: 1; case .card: 2; case .line: 3 }
                 }
                 return rank($0) < rank($1)
+            }
+            if let placeholder = metadata.replacementPlaceholderID,
+               records.contains(where: { if case .card(let card) = $0.payload { return card.status == .active && card.isInbox }; return false }) {
+                // A marker-only page gets a local, never-uploaded placeholder.
+                // Remove it when real replacement content arrives. Captures made
+                // while waiting remain as a normal card rather than losing edits.
+                if try lines(cardID: CardID(rawValue: placeholder)).isEmpty {
+                    try removeEntity(.card, id: placeholder)
+                } else if var card = try cards(scope: .all).first(where: { $0.id.rawValue == placeholder }) {
+                    card.isInbox = false
+                    try saveCard(card, stored: storedCard(card.id), now: now)
+                }
+                metadata.replacementPlaceholderID = nil
             }
             var unresolved: [UUID: ReplicatedRecord] = [:]
             // Deletions are applied first, independent of server page ordering.
@@ -846,7 +813,7 @@ private actor RepositoryStore {
         }
     }
 
-    private func resetContents(generation: ResetGeneration, now: Date) throws {
+    private func resetContents(generation: ResetGeneration, now: Date, replacement: TransferSnapshot? = nil) throws {
             let oldCards = try cards(scope: .all)
             let waitingLines = try (syncMetadata().unresolvedLines ?? []).compactMap { record -> CardLine? in
                 if case .line(let line) = record.payload { return line }; return nil
@@ -869,6 +836,43 @@ private actor RepositoryStore {
             metadata.generation = generation
             metadata.unresolvedLines = nil
             metadata.resetCleanupPending = true
+            metadata.replacementPlaceholderID = nil
+            if generation.isReplacement {
+                metadata.tombstones = []
+                try syncMetadataRow().payload = JSONEncoder().encode(metadata)
+                if let replacement {
+                    var cards = replacement.cards
+                    let active = cards.filter { $0.status == .active }
+                    let inboxID = (active.first(where: \.isInbox) ?? active.min { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString })?.id
+                        ?? CardID(rawValue: generation.id)
+                    if active.isEmpty {
+                        cards.append(Card(id: inboxID, title: "Inbox", status: .active, themeID: .cream, isInbox: true,
+                            createdAt: generation.modifiedAt, modifiedAt: generation.modifiedAt, archivedAt: nil,
+                            deletedAt: nil, revision: 1, deviceID: generation.deviceID))
+                    }
+                    let payload = try JSONEncoder().encode(UserStateChange(resetGeneration: generation.id, inboxCardID: inboxID))
+                    try appendChange(entity: .userState, id: generation.id, payload: payload, now: now)
+                    for var card in cards {
+                        card.isInbox = card.id == inboxID
+                        card.deviceID = generation.deviceID; card.revision = 1; card.modifiedAt = generation.modifiedAt
+                        let row = try PetalSchemaV1.StoredCard(card); context.insert(row)
+                        try appendChange(entity: .card, id: row.id, payload: row.payload, now: now)
+                    }
+                    for var line in replacement.lines {
+                        line.deviceID = generation.deviceID; line.revision = 1; line.modifiedAt = generation.modifiedAt
+                        let row = try PetalSchemaV1.StoredLine(line); context.insert(row)
+                        try appendChange(entity: .line, id: row.id, payload: row.payload, now: now)
+                    }
+                } else {
+                    let card = Card(id: CardID(rawValue: generation.id), title: "Inbox", status: .active, themeID: .cream,
+                        isInbox: true, createdAt: generation.modifiedAt, modifiedAt: generation.modifiedAt,
+                        archivedAt: nil, deletedAt: nil, revision: 1, deviceID: generation.deviceID)
+                    context.insert(try PetalSchemaV1.StoredCard(card))
+                    metadata.replacementPlaceholderID = generation.id
+                    try syncMetadataRow().payload = JSONEncoder().encode(metadata)
+                }
+                return
+            }
             var tombstones = Dictionary(uniqueKeysWithValues: metadata.tombstones.map { ($0.entityID, $0) })
             for card in oldCards {
                 tombstones[card.id.rawValue] = SyncTombstone(id: tombstones[card.id.rawValue]?.id ?? UUID(),

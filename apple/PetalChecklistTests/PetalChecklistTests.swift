@@ -29,4 +29,20 @@ final class PetalChecklistTests: XCTestCase {
         XCTAssertEqual(backup.snapshot.cards.map(\.title), ["Inbox"])
         XCTAssertTrue(backup.settings.notificationSoundEnabled)
     }
+
+    @MainActor func testMarkdownTransferUsesGrantedDirectoryAsParentOfAllOutput() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let selected = root.appendingPathComponent("User-selected directory")
+        try FileManager.default.createDirectory(at: selected, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+        try await repository.bootstrap(now: .now)
+        let model = DataTransferModel(repository: repository, settings: { TransferSettings() }, applySettings: { _ in })
+        await model.run(.markdown(selected))
+        XCTAssertTrue(model.succeeded)
+        XCTAssertFalse(model.failed)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["User-selected directory"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: selected.path), ["Petal Markdown Export"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: selected.appendingPathComponent("Petal Markdown Export").path).count, 1)
+    }
 }

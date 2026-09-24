@@ -54,3 +54,17 @@ func windowsFixture() throws -> Data {
     #expect(!entry.lines[1].isCompleted)
     #expect(entry.lines[1].reminder?.rule == .daily(localMinute: 1380, timeZoneIdentifier: "Asia/Shanghai"))
 }
+
+@Test(arguments: ["2026-02-30T09:30:00Z", "2025-02-29T09:30:00Z", "2026-13-01T09:30:00Z",
+    "2026-09-25T24:00:00Z", "2026-09-25T09:60:00Z", "2026-09-25T09:30:60Z",
+    "2026-09-25T09:30:00Zjunk", "2026-09-25T09:30:00Z\n", "2026-09-25T09:30:00",
+    "2026-09-25T09:30:00+14:01", "2026-09-25T09:30:00+08:60", "0000-01-01T00:00:00Z"])
+func windowsRejectsImpossibleOrPartiallyConsumedDate(_ value: String) throws {
+    #expect(throws: TransferError.invalidDocument) { try TransferDate.parse(value) }
+}
+
+@Test(arguments: ["2024-02-29T01:30:00Z", "2024-02-29T09:30:00+08:00", "2024-02-28T20:00:00-05:30"])
+func windowsAcceptsValidLeapDateAndOffsets(_ value: String) throws {
+    #expect(try TransferDate.parse(value) == Date(timeIntervalSince1970: 1_709_170_200))
+    #expect(try TransferDate.parse("2024-02-29T01:30:00.1234567Z").timeIntervalSince1970 == 1_709_170_200.1234567)
+}

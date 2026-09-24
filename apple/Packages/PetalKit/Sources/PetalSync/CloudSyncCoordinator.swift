@@ -103,7 +103,13 @@ public actor CloudSyncCoordinator {
             let current = try await repository.syncSnapshot()
             try check(operation)
             guard current.enabled, current.preferenceEpoch == preferenceEpoch else { return }
-            let changes = try CloudRecordMapper.outbound(current)
+            var changes = try CloudRecordMapper.outbound(current)
+            if current.generation.isReplacement {
+                let markers = changes.filter { if case .userState = $0.record.payload { true } else { false } }
+                // CK may partially accept a non-atomic batch. Persist acceptance
+                // of the replacement marker before publishing its user records.
+                if !markers.isEmpty { changes = markers }
+            }
             if !changes.isEmpty {
                 let result = try await transport.send(changes)
                 try check(operation)

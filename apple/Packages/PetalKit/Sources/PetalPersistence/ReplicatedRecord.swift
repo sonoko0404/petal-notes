@@ -5,8 +5,17 @@ public struct ResetGeneration: Codable, Sendable, Equatable, Comparable {
     public let id: UUID
     public let modifiedAt: Date
     public let deviceID: String
-    public init(id: UUID, modifiedAt: Date, deviceID: String) {
-        self.id = id; self.modifiedAt = modifiedAt; self.deviceID = deviceID
+    public let isReplacement: Bool
+    public init(id: UUID, modifiedAt: Date, deviceID: String, isReplacement: Bool = false) {
+        self.id = id; self.modifiedAt = modifiedAt; self.deviceID = deviceID; self.isReplacement = isReplacement
+    }
+    private enum CodingKeys: String, CodingKey { case id, modifiedAt, deviceID, isReplacement }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        modifiedAt = try c.decode(Date.self, forKey: .modifiedAt)
+        deviceID = try c.decode(String.self, forKey: .deviceID)
+        isReplacement = try c.decodeIfPresent(Bool.self, forKey: .isReplacement) ?? false
     }
     public static let initial = ResetGeneration(id: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
         modifiedAt: Date(timeIntervalSince1970: 0), deviceID: "")

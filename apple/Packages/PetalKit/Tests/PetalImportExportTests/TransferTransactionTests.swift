@@ -67,9 +67,9 @@ import PetalImportExport
     #expect(cards.first?.isInbox == true)
     #expect(try await repository.lines(cardID: entries[0].card.id).count == 4)
     let changes = try await repository.pendingOutbox()
-    #expect(changes.contains { $0.entityID == before.cards[0].id.rawValue && $0.operation == .delete })
+    #expect(changes.contains { $0.entity == .userState && $0.operation == .upsert })
     #expect(changes.contains { $0.entityID == entries[0].card.id.rawValue && $0.operation == .upsert })
-    #expect(try await repository.resetGeneration() == nil)
+    #expect(try await repository.resetGeneration() != nil)
 }
 
 @Test func differentWindowsFilesWithOverlappingNoteIDsImportOnlyNewNotes() async throws {

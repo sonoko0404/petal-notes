@@ -30,13 +30,13 @@ import PetalImportExport
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
-    let folder = root.appendingPathComponent("Export")
+    let folder = root.appendingPathComponent("Petal Markdown Export")
     let entries = try WindowsNotesImporter.decode(windowsFixture(), now: transferNow, timeZone: .gmt)
     let snapshot = TransferSnapshot(cards: entries.map(\.card), lines: entries.flatMap(\.lines))
-    try MarkdownExporter.write(snapshot, to: folder)
+    try MarkdownExporter.write(snapshot, to: root)
     #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 1)
-    #expect(throws: (any Error).self) { try MarkdownExporter.write(snapshot, to: folder) }
-    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["Export"])
+    #expect(throws: (any Error).self) { try MarkdownExporter.write(snapshot, to: root) }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["Petal Markdown Export"])
     #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 1)
 }
 
@@ -49,4 +49,16 @@ import PetalImportExport
     let text = String(decoding: try #require(documents.values.first), as: UTF8.self)
     #expect(text.hasSuffix("- [ ] alpha\n    beta\n    gamma\n"))
     #expect(!text.contains("\r"))
+}
+
+@Test func markdownStagesAndPublishesOnlyInsideSelectedDirectory() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let selected = root.appendingPathComponent("Selected")
+    try FileManager.default.createDirectory(at: selected, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let entry = try #require(WindowsNotesImporter.decode(windowsFixture(), now: transferNow, timeZone: .gmt).first)
+    try MarkdownExporter.write(TransferSnapshot(cards: [entry.card], lines: entry.lines), to: selected)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["Selected"])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: selected.path) == ["Petal Markdown Export"])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: selected.appendingPathComponent("Petal Markdown Export").path).count == 1)
 }
