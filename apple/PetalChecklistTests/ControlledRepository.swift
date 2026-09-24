@@ -82,6 +82,9 @@ final class ControlledRepository: PetalRepository {
         return try await base.captureTodoLines(cardID: cardID, texts: texts, now: now)
     }
     func updateLine(_ mutation: LineMutation, now: Date) async throws -> CardLine { try await base.updateLine(mutation, now: now) }
+    func setReminder(lineID: LineID, reminder: Reminder?, now: Date) async throws -> CardLine {
+        try await base.setReminder(lineID: lineID, reminder: reminder, now: now)
+    }
     func setCompleted(lineID: LineID, completed: Bool, now: Date) async throws { try await base.setCompleted(lineID: lineID, completed: completed, now: now) }
     func setWidgetCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) async throws {
         try await base.setWidgetCompleted(lineID: lineID, completed: completed, now: now, calendar: calendar)

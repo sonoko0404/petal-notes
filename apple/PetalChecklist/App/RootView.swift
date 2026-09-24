@@ -1,6 +1,9 @@
 import AppKit
 import SwiftUI
 import PetalCore
+import PetalPersistence
+import PetalNotifications
+import PetalActions
 
 struct RootView: View {
     let capture: QuickCaptureAppController
@@ -9,6 +12,8 @@ struct RootView: View {
     @State private var startupError: String?
     @State private var pendingInboxMove: PendingInboxMove?
     @State private var recordingShortcut = false
+    @State private var reminders: AppReminderRuntime?
+    @AppStorage("notificationSoundEnabled", store: ReminderSoundPreference.defaults) private var notificationSoundEnabled = false
 
     private struct PendingInboxMove {
         let cardID: CardID
@@ -20,6 +25,10 @@ struct RootView: View {
         Group {
             if let router {
                 VStack(spacing: 0) {
+                    if reminders?.state == .schedulingFailed || reminders?.actionFailed == true {
+                        Text("Reminder scheduling failed. Open the reminder and save again to retry.")
+                            .foregroundStyle(.red).padding(8)
+                    }
                     if let error = router.errorMessage {
                         HStack {
                             Text(error)
@@ -55,6 +64,8 @@ struct RootView: View {
                         VStack(alignment: .leading) {
                             Text("Settings").font(.title)
                             Text("Local cards are available offline.")
+                            Toggle("Notification Sound", isOn: $notificationSoundEnabled)
+                                .onChange(of: notificationSoundEnabled) { _, _ in Task { await reminders?.reconcile(.localMutation) } }
                             Picker("Quick Capture Shortcut", selection: Binding(
                                 get: { capture.hotKey.selection },
                                 set: { capture.hotKey.configure($0) }
@@ -141,7 +152,9 @@ struct RootView: View {
                 let opened = try await AppEnvironment.make()
                 let model = CardLibraryModel(repository: opened.repository)
                 try await model.show(.inbox)
-                let navigation = AppRouter(repository: opened.repository, library: model)
+                let runtime = AppReminderRuntime(repository: opened.repository)
+                reminders = runtime
+                let navigation = AppRouter(repository: opened.repository, library: model, reminders: runtime.coordinator)
                 router = navigation
                 if let inbox = model.cards.first { await navigation.select(inbox.id) }
                 capture.configure(repository: opened.repository) { [weak navigation] id in
@@ -153,11 +166,27 @@ struct RootView: View {
                     await links.handle(url)
                 }
                 capture.openFromLaunchArguments()
+                await runtime.start()
             } catch {
                 startupError = error.localizedDescription
             }
         }
         .onOpenURL { url in Task { await PetalNavigationRequests.shared.open(url) } }
+        .onReceive(NotificationCenter.default.publisher(for: .petalRepositoryDidCommit).receive(on: DispatchQueue.main)) { _ in
+            Task { await reminders?.reconcile(.localMutation) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await reminders?.reconcile(.foreground) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            Task { await reminders?.reconcile(.dateChange) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemClockDidChange)) { _ in
+            Task { await reminders?.reconcile(.dateChange) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            Task { await reminders?.reconcile(.timeZoneChange) }
+        }
     }
 
     private func icon(_ scope: LibraryScope) -> String {

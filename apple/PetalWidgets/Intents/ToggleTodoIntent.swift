@@ -3,6 +3,8 @@ import Foundation
 import WidgetKit
 import PetalCore
 import PetalPersistence
+import PetalActions
+import PetalNotifications
 
 protocol WidgetReloading: Sendable {
     func reload(kind: String) async
@@ -51,7 +53,8 @@ struct ToggleTodoIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let outcome = await perform(action: RepositoryWidgetTodoAction(openRepository: { try WidgetStore.open() }),
+        let action = ReminderWidgetTodoAction(openRepository: { try WidgetStore.open() })
+        let outcome = await perform(action: action,
             reloader: SystemWidgetReloader(), clock: { .now })
         return .result(dialog: outcome.dialog)
     }

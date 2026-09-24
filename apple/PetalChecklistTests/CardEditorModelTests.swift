@@ -3,10 +3,37 @@ import PetalCore
 import PetalPersistence
 import PetalTestSupport
 import SwiftUI
+import PetalNotifications
 @testable import PetalChecklist
 
 @MainActor
 final class CardEditorModelTests: XCTestCase {
+    func testLocalCommitBroadcastsForLifecycleReconciliation() async throws {
+        let repo = try await InMemoryPetalRepository.bootstrapped()
+        let notification = expectation(forNotification: .petalRepositoryDidCommit, object: nil)
+        _ = try await repo.createCard(title: "Mutation", now: .now)
+        await fulfillment(of: [notification], timeout: 2)
+    }
+    func testReminderFailureRetainsDraftAndTextCannotHaveReminder() async throws {
+        let store = try ModelContainerFactory.makeInMemory()
+        let repo = SwiftDataPetalRepository(container: store)
+        let card = try await repo.createCard(title: "A", now: .now)
+        let line = try await repo.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Todo"), now: .now)
+        let failing = SwiftDataPetalRepository(container: store, faultInjector: .failOnceBeforeSave)
+        let model = CardEditorModel(cardID: card.id, repository: failing)
+        try await model.load()
+        let reminder = Reminder(rule: .daily(localMinute: 600, timeZoneIdentifier: "UTC"), isEnabled: true)
+        model.editReminder(lineID: line.id, reminder: reminder)
+        let failed = await model.saveReminder(lineID: line.id)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(model.reminderDrafts[line.id]?.value, reminder)
+        let retried = await model.saveReminder(lineID: line.id)
+        XCTAssertTrue(retried)
+        XCTAssertEqual(model.lines.first?.reminder, reminder)
+        try await model.convert(lineID: line.id, to: .text)
+        model.editReminder(lineID: line.id, reminder: reminder)
+        XCTAssertNil(model.reminderDrafts[line.id])
+    }
     func testMixedLinesDefaultToTodoConvertCompleteAndShareReorderPath() async throws {
         let repository = try await InMemoryPetalRepository.bootstrapped()
         let card = try await repository.createCard(title: "Today", now: .now)

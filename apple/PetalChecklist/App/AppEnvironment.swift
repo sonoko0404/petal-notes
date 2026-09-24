@@ -1,6 +1,10 @@
 import Foundation
 import PetalCore
 import PetalPersistence
+import PetalNotifications
+import PetalActions
+import Observation
+import WidgetKit
 
 struct AppEnvironment {
     let repository: any PetalRepository
@@ -31,5 +35,32 @@ struct AppEnvironment {
             return AppEnvironment(repository: SwiftDataPetalRepository(container: store, faultInjector: .failOnceBeforeSave))
         }
         return AppEnvironment(repository: setup)
+    }
+}
+
+@MainActor @Observable
+final class AppReminderRuntime {
+    let coordinator: ReminderCoordinator
+    private let center: SystemNotificationCenter
+    private(set) var state: ReconcileResult?
+    private(set) var actionFailed = false
+    init(repository: any PetalRepository) {
+        let center = SystemNotificationCenter()
+        self.center = center
+        coordinator = ReminderCoordinator(repository: repository,
+            scheduler: UserNotificationScheduler(center: center, soundEnabled: {
+                ReminderSoundPreference.isEnabled
+            }), reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() })
+    }
+    func start() async {
+        await center.installResponseHandler(coordinator) { [weak self] in
+            await self?.recordActionFailure()
+        }
+        await reconcile(.launch)
+    }
+    private func recordActionFailure() { actionFailed = true }
+    func reconcile(_ reason: ReminderReconcileReason) async {
+        do { state = try await coordinator.reconcile(reason) }
+        catch { state = .schedulingFailed }
     }
 }

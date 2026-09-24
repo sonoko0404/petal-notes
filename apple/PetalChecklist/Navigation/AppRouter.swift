@@ -1,6 +1,7 @@
 import Observation
 import PetalCore
 import PetalPersistence
+import PetalActions
 
 enum LibraryScope: String, CaseIterable, Identifiable {
     case inbox, allCards, archive, trash, settings
@@ -11,6 +12,7 @@ enum LibraryScope: String, CaseIterable, Identifiable {
 @MainActor @Observable
 final class AppRouter {
     private let repository: any PetalRepository
+    private let reminders: ReminderCoordinator?
     let library: CardLibraryModel
     private(set) var scope: LibraryScope = .inbox
     private(set) var selectedCardID: CardID?
@@ -24,9 +26,10 @@ final class AppRouter {
     @ObservationIgnored private var closing = false
     @ObservationIgnored private var retryAction: (@MainActor () async -> Void)?
 
-    init(repository: any PetalRepository, library: CardLibraryModel) {
+    init(repository: any PetalRepository, library: CardLibraryModel, reminders: ReminderCoordinator? = nil) {
         self.repository = repository
         self.library = library
+        self.reminders = reminders
     }
 
     private func isCurrent(_ request: Int) -> Bool { request == latestRequest && !closing }
@@ -75,7 +78,7 @@ final class AppRouter {
         await transition({ [self] request in
             try await flushEditor()
             guard isCurrent(request) else { return }
-            let next = editors[id] ?? CardEditorModel(cardID: id, repository: repository)
+            let next = editors[id] ?? CardEditorModel(cardID: id, repository: repository, reminders: reminders)
             try await next.load()
             guard isCurrent(request) else { return }
             editors[id] = next
@@ -106,7 +109,7 @@ final class AppRouter {
                 guard isCurrent(request) else { return }
                 switch route {
                 case .card(let id):
-                    let next = editors[id] ?? CardEditorModel(cardID: id, repository: repository)
+                    let next = editors[id] ?? CardEditorModel(cardID: id, repository: repository, reminders: reminders)
                     try await next.load()
                     guard isCurrent(request) else { return }
                     var card = try await DeepLinkHandler.validate(route, repository: repository)
@@ -147,7 +150,7 @@ final class AppRouter {
             guard isCurrent(request) else { return }
             let card = try await library.createCard(title: String(localized: "Untitled Card"))
             retryAction = { [weak self] in await self?.select(card.id) }
-            let next = CardEditorModel(cardID: card.id, repository: repository)
+            let next = CardEditorModel(cardID: card.id, repository: repository, reminders: reminders)
             try await next.load()
             guard isCurrent(request) else { return }
             editors[card.id] = next

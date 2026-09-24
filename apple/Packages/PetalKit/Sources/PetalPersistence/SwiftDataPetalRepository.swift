@@ -26,6 +26,9 @@ public struct SwiftDataPetalRepository: PetalRepository {
         try await store.captureTodoLines(cardID: cardID, texts: texts, now: now)
     }
     public func updateLine(_ mutation: LineMutation, now: Date) async throws -> CardLine { try await store.updateLine(mutation, now: now) }
+    public func setReminder(lineID: LineID, reminder: Reminder?, now: Date) async throws -> CardLine {
+        try await store.setReminder(lineID: lineID, reminder: reminder, now: now)
+    }
     public func setCompleted(lineID: LineID, completed: Bool, now: Date) async throws {
         try await store.setCompleted(lineID: lineID, completed: completed, now: now)
     }
@@ -86,6 +89,7 @@ private actor RepositoryStore {
                     throw RepositoryError.injectedFailure
                 }
                 try session.save()
+                NotificationCenter.default.post(name: .petalRepositoryDidCommit, object: nil)
                 return result
             } catch {
                 session.rollback()
@@ -170,6 +174,7 @@ private actor RepositoryStore {
     }
 
     private func insertLine(_ draft: NewLineDraft, sortIndex: Int64, now: Date) throws -> CardLine {
+        try draft.reminder?.validate()
         let completed = draft.kind == .todo && draft.isCompleted
         let value = CardLine(id: LineID(rawValue: UUID()), cardID: draft.cardID, kind: draft.kind,
                              text: draft.text, sortIndex: sortIndex, isCompleted: completed,
@@ -204,7 +209,8 @@ private actor RepositoryStore {
     }
 
     func updateLine(_ mutation: LineMutation, now: Date) throws -> CardLine {
-        try transaction {
+        try mutation.reminder?.validate()
+        return try transaction {
             let stored = try storedLine(mutation.id)
             var value = try stored.value()
             value.kind = mutation.kind
@@ -236,6 +242,19 @@ private actor RepositoryStore {
             value.isCompleted = completed
             value.completedAt = completed ? now : nil
             try saveLine(value, stored: stored, now: now)
+        }
+    }
+
+    func setReminder(lineID: LineID, reminder: Reminder?, now: Date) throws -> CardLine {
+        try reminder?.validate()
+        return try transaction {
+            let stored = try storedLine(lineID)
+            var value = try stored.value()
+            guard value.kind == .todo else { throw RepositoryError.lineUnavailable }
+            guard value.reminder != reminder else { return value }
+            value.reminder = reminder
+            try saveLine(value, stored: stored, now: now)
+            return try stored.value()
         }
     }
 

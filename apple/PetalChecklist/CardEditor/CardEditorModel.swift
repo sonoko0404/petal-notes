@@ -2,6 +2,8 @@ import Foundation
 import Observation
 import PetalCore
 import PetalPersistence
+import PetalActions
+import PetalNotifications
 
 enum SaveState: Equatable {
     case saved
@@ -13,6 +15,12 @@ enum EditorError: Error { case pendingSaveFailed, transitionInProgress }
 
 @MainActor @Observable
 final class CardEditorModel {
+    struct ReminderDraft: Equatable { var value: Reminder? }
+    private(set) var reminderDrafts: [LineID: ReminderDraft] = [:]
+    private(set) var reminderState: ReconcileResult?
+    private(set) var reminderError = false
+    private(set) var isSavingReminder = false
+    @ObservationIgnored private let reminders: ReminderCoordinator?
     let cardID: CardID
     private let repository: any PetalRepository
     private(set) var title = ""
@@ -31,9 +39,35 @@ final class CardEditorModel {
     @ObservationIgnored private var submissionWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private var newLineRevision = 0
 
-    init(cardID: CardID, repository: any PetalRepository) {
+    init(cardID: CardID, repository: any PetalRepository, reminders: ReminderCoordinator? = nil) {
         self.cardID = cardID
         self.repository = repository
+        self.reminders = reminders
+    }
+
+    func editReminder(lineID: LineID, reminder: Reminder?) {
+        guard !isReadOnly, !isTransitionLocked, !isSavingReminder,
+              lines.contains(where: { $0.id == lineID && $0.kind == .todo }) else { return }
+        reminderDrafts[lineID] = ReminderDraft(value: reminder)
+    }
+
+    func saveReminder(lineID: LineID) async -> Bool {
+        guard !isSavingReminder, !isReadOnly, !isTransitionLocked,
+              let draft = reminderDrafts[lineID] else { return false }
+        isSavingReminder = true
+        defer { isSavingReminder = false }
+        do {
+            guard await flushPending() else { throw EditorError.pendingSaveFailed }
+            if let reminders { reminderState = try await reminders.save(lineID: lineID, reminder: draft.value) }
+            else {
+                _ = try await repository.setReminder(lineID: lineID, reminder: draft.value, now: .now)
+                reminderState = .permissionRequired
+            }
+            lines = try await repository.lines(cardID: cardID)
+            reminderDrafts.removeValue(forKey: lineID)
+            reminderError = false
+            return true
+        } catch { reminderError = true; return false }
     }
 
     func setTransitionLocked(_ locked: Bool) { isTransitionLocked = locked }

@@ -1,6 +1,10 @@
 import Foundation
 import PetalCore
 
+public extension Notification.Name {
+    static let petalRepositoryDidCommit = Notification.Name("petal.repository.didCommit")
+}
+
 public protocol PetalRepository: Sendable {
     func bootstrap(now: Date) async throws
     func cards(scope: CardScope) async throws -> [Card]
@@ -9,6 +13,7 @@ public protocol PetalRepository: Sendable {
     func addLine(_ draft: NewLineDraft, now: Date) async throws -> CardLine
     func captureTodoLines(cardID: CardID, texts: [String], now: Date) async throws -> [CardLine]
     func updateLine(_ mutation: LineMutation, now: Date) async throws -> CardLine
+    func setReminder(lineID: LineID, reminder: Reminder?, now: Date) async throws -> CardLine
     func setCompleted(lineID: LineID, completed: Bool, now: Date) async throws
     func setWidgetCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) async throws
     func reorder(cardID: CardID, orderedLineIDs: [LineID], now: Date) async throws

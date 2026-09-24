@@ -7,6 +7,7 @@ struct CardLineRow: View {
     let model: CardEditorModel
     let onError: (Error) -> Void
     @FocusState private var focused: Bool
+    @State private var editingReminder = false
 
     var body: some View {
         HStack {
@@ -38,6 +39,10 @@ struct CardLineRow: View {
                 return .handled
             }
             Menu {
+                if line.kind == .todo {
+                    Button("Reminder") { editingReminder = true }
+                        .accessibilityIdentifier("line.reminder")
+                }
                 Button(line.kind == .todo ? "Convert to Text" : "Convert to Todo") {
                     Task { do { try await model.convert(lineID: line.id, to: line.kind == .todo ? .text : .todo) }
                         catch { onError(error) } }
@@ -54,6 +59,7 @@ struct CardLineRow: View {
         .onMoveCommand { direction in
             if let moveDirection = Self.moveDirection(for: direction) { move(moveDirection) }
         }
+        .sheet(isPresented: $editingReminder) { ReminderEditorView(line: line, model: model) }
         .onDrag { NSItemProvider(object: line.id.rawValue.uuidString as NSString) }
         .onDrop(of: [UTType.plainText.identifier], isTargeted: nil) { providers in
             guard let provider = providers.first else { return false }
