@@ -1,14 +1,14 @@
 import Foundation
 
-public enum WidgetCardState: String, Sendable, Equatable {
+public enum WidgetCardState: String, Codable, Sendable, Equatable {
     case normal, empty, archived, trashed, unavailable, persistenceError
 }
 
-public enum WidgetSyncBadge: String, Sendable, Equatable {
+public enum WidgetSyncBadge: String, Codable, Sendable, Equatable {
     case syncing, offline, failed
 }
 
-public struct WidgetLine: Identifiable, Sendable, Equatable {
+public struct WidgetLine: Identifiable, Codable, Sendable, Equatable {
     public let id: LineID
     public let kind: LineKind
     public let text: String
@@ -23,7 +23,7 @@ public struct WidgetLine: Identifiable, Sendable, Equatable {
 }
 
 /// Immutable presentation data. No repository, model context, or SDK UI types cross this boundary.
-public struct WidgetSnapshot: Sendable, Equatable {
+public struct WidgetSnapshot: Codable, Sendable, Equatable {
     public let cardID: CardID
     public let title: String
     public let visibleLines: [WidgetLine]

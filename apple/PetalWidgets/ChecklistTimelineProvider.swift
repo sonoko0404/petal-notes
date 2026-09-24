@@ -12,7 +12,9 @@ struct ChecklistEntry: TimelineEntry {
 }
 
 struct ChecklistTimelineProvider: AppIntentTimelineProvider {
-    private static let sharedReader = WidgetSnapshotReader { try WidgetStore.open() }
+    private static let sharedReader = WidgetSnapshotReader(
+        cache: WidgetSnapshotCache(directory: { try WidgetStore.cacheDirectory() })
+    ) { try WidgetStore.open() }
     let reader: WidgetSnapshotReader
 
     init(reader: WidgetSnapshotReader = Self.sharedReader) { self.reader = reader }
@@ -25,7 +27,15 @@ struct ChecklistTimelineProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: ChecklistWidgetConfigurationIntent, in context: Context) async -> Timeline<ChecklistEntry> {
         let value = await entry(configuration: configuration, family: context.family, isPreview: context.isPreview, now: .now, calendar: .current)
-        return Timeline(entries: [value], policy: .after(value.snapshot.nextRefresh))
+        return timeline(for: value)
+    }
+
+    func timeline(for entry: ChecklistEntry) -> Timeline<ChecklistEntry> {
+        // A transient local read failure retries in 15 minutes, capped by local midnight.
+        let refresh = entry.snapshot.cardState == .persistenceError
+            ? min(entry.date.addingTimeInterval(15 * 60), entry.snapshot.nextRefresh)
+            : entry.snapshot.nextRefresh
+        return Timeline(entries: [entry], policy: .after(refresh))
     }
 
     func entry(configuration: ChecklistWidgetConfigurationIntent, family: WidgetFamily, isPreview: Bool,

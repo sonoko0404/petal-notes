@@ -66,8 +66,19 @@ struct ChecklistWidgetConfigurationIntent: WidgetConfigurationIntent {
 
 enum WidgetStore {
     static func open() throws -> SwiftDataPetalRepository {
+        SwiftDataPetalRepository(container: try ModelContainerFactory.makeShared(appGroupID: groupIdentifier()))
+    }
+
+    static func cacheDirectory() throws -> URL {
+        guard let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: try groupIdentifier()) else {
+            throw RepositoryError.appGroupUnavailable
+        }
+        return root.appendingPathComponent("Library/Caches/Petal/WidgetSnapshots", isDirectory: true)
+    }
+
+    private static func groupIdentifier() throws -> String {
         guard let group = Bundle.main.object(forInfoDictionaryKey: "PetalAppGroupIdentifier") as? String,
               !group.isEmpty, !group.contains("$(") else { throw RepositoryError.appGroupUnavailable }
-        return SwiftDataPetalRepository(container: try ModelContainerFactory.makeShared(appGroupID: group))
+        return group
     }
 }

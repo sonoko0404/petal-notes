@@ -119,7 +119,7 @@ enum ChecklistWidgetPreviews {
     static var scenarios: [Scenario] {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let gallery = ChecklistTimelineProvider.gallery(now: now, calendar: .current)
-        func sample(_ state: WidgetCardState, count: Int = 0, hidden: Int = 0) -> ChecklistEntry {
+        func sample(_ state: WidgetCardState, count: Int = 0, hidden: Int = 0, material: MaterialOption = .solid) -> ChecklistEntry {
             let rows = (0..<count).map { index in
                 WidgetLine(id: LineID(rawValue: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index + 1))!),
                     kind: index == 0 ? .text : .todo,
@@ -128,12 +128,15 @@ enum ChecklistWidgetPreviews {
             }
             return ChecklistEntry(date: now, snapshot: WidgetSnapshot(cardID: gallery.snapshot.cardID, title: "Today · 今天",
                 visibleLines: rows, hiddenCount: hidden, cardState: state, nextRefresh: gallery.snapshot.nextRefresh),
-                theme: .cream, typeface: .rounded, material: .solid)
+                theme: .cream, typeface: .rounded, material: material)
         }
         return [Scenario(name: "normal-light", entry: gallery),
                 Scenario(name: "overflow-medium", entry: sample(.normal, count: 5, hidden: 3)),
                 Scenario(name: "overflow-large-dark", entry: sample(.normal, count: 10, hidden: 4), large: true, dark: true),
                 Scenario(name: "vibrant", entry: sample(.normal, count: 5), vibrant: true),
+                Scenario(name: "translucent-light", entry: sample(.normal, count: 5, material: .translucent)),
+                Scenario(name: "translucent-dark", entry: sample(.normal, count: 5, material: .translucent), dark: true),
+                Scenario(name: "translucent-vibrant", entry: sample(.normal, count: 5, material: .translucent), vibrant: true),
                 Scenario(name: "large-text", entry: sample(.normal, count: 5, hidden: 3), largeText: true),
                 Scenario(name: "empty", entry: sample(.empty)),
                 Scenario(name: "archived", entry: sample(.archived)),

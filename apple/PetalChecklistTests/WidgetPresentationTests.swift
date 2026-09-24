@@ -45,6 +45,33 @@ final class WidgetPresentationTests: XCTestCase {
         XCTAssertEqual(entry.snapshot.cardState, .unavailable)
     }
 
+    func testErrorTimelineRetriesWithinFifteenMinutesAndNeverAfterMidnight() async {
+        let provider = ChecklistTimelineProvider(reader: WidgetSnapshotReader { throw RepositoryError.appGroupUnavailable })
+        let intent = ChecklistWidgetConfigurationIntent()
+        intent.card = CardEntity(id: UUID(), title: "Configured")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        for (now, expected) in [(1_800_000_000.0, 1_800_000_900.0), (1_800_057_500.0, 1_800_057_600.0)] {
+            let entry = await provider.entry(configuration: intent, family: .systemMedium, isPreview: false,
+                now: Date(timeIntervalSince1970: now), calendar: calendar)
+            let timeline = provider.timeline(for: entry)
+            XCTAssertEqual(timeline.policy, .after(Date(timeIntervalSince1970: expected)))
+            XCTAssertEqual(entry.snapshot.nextRefresh, Date(timeIntervalSince1970: 1_800_057_600))
+        }
+    }
+
+    func testSuccessfulTimelineRetainsMidnightRefresh() async throws {
+        let fixture = try await InMemoryPetalRepository.cardWithTodos(count: 1)
+        let provider = ChecklistTimelineProvider(reader: WidgetSnapshotReader { fixture.repository })
+        let intent = ChecklistWidgetConfigurationIntent()
+        intent.card = CardEntity(id: fixture.fixtureCardID.rawValue, title: "Configured")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let entry = await provider.entry(configuration: intent, family: .systemMedium, isPreview: false,
+            now: Date(timeIntervalSince1970: 1_800_000_000), calendar: calendar)
+        XCTAssertEqual(provider.timeline(for: entry).policy, .after(Date(timeIntervalSince1970: 1_800_057_600)))
+    }
+
     func testPreviewMatrixRendersAtWidgetSizes() throws {
         // These attachments are visual-review evidence, not pixel-golden assertions.
         for scenario in ChecklistWidgetPreviews.scenarios {
