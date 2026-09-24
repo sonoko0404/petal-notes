@@ -13,6 +13,32 @@ actor ActionEvents {
     func open(_ url: URL) { urls.append(url) }
 }
 struct ReminderCoordinatorTests {
+    @Test(arguments: [false, true])
+    func completedSnoozeCannotReturnAfterMidnight(notificationAction: Bool) async throws {
+        let now = ISO8601DateFormatter().date(from: "2026-09-23T23:58:00Z")!
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let utcCalendar = calendar
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 1, now: now)
+        let line = try #require(await f.repository.lines(cardID: f.fixtureCardID).first)
+        let center = FakeNotificationCenter(.authorized)
+        let scheduler = UserNotificationScheduler(center: center)
+        let before = ReminderCoordinator(repository: f.repository, scheduler: scheduler, now: { now }, calendar: { utcCalendar })
+        _ = try await before.save(lineID: line.id, reminder: Reminder(rule: .daily(localMinute: 600, timeZoneIdentifier: "UTC"), isEnabled: true))
+        try await before.handle(.snoozeFiveMinutes, lineID: line.id, cardID: line.cardID)
+        #expect(await center.requests.first { $0.id.hasSuffix(".snooze") }?.fireDate == now.addingTimeInterval(300))
+        let completedAt = now.addingTimeInterval(60)
+        let completion = ReminderCoordinator(repository: f.repository, scheduler: scheduler, now: { completedAt }, calendar: { utcCalendar })
+        if notificationAction { try await completion.handle(.complete, lineID: line.id, cardID: line.cardID) }
+        else { try await completion.setCompleted(lineID: line.id, completed: true, now: completedAt, calendar: utcCalendar) }
+        let midnight = ReminderCoordinator(repository: f.repository, scheduler: scheduler,
+            now: { now.addingTimeInterval(120) }, calendar: { utcCalendar })
+        _ = try await midnight.reconcile(.dateChange)
+        #expect(await center.requests.count == 1)
+        #expect(await center.requests.first?.id == "line.\(line.id.rawValue)")
+        #expect(await center.requests.first?.dailyComponents != nil)
+        #expect(try await f.repository.lines(cardID: line.cardID).first?.reminder?.snoozedUntil == nil)
+    }
     @Test func burstInvalidationsCoalesceAndNewestStoreStateIsNotLost() async throws {
         let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
         let line = try #require(await f.repository.lines(cardID: f.fixtureCardID).first)

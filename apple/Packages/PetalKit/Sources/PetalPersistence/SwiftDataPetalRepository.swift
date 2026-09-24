@@ -238,9 +238,7 @@ private actor RepositoryStore {
             var effectiveCompleted = value.isCompleted
             if case .daily = value.reminder?.rule, let date = value.completedAt,
                !calendar.isDate(date, inSameDayAs: now) { effectiveCompleted = false }
-            guard effectiveCompleted != completed else { return }
-            value.isCompleted = completed
-            value.completedAt = completed ? now : nil
+            guard applyCompletion(&value, completed: completed, effectiveCompleted: effectiveCompleted, now: now) else { return }
             try saveLine(value, stored: stored, now: now)
         }
     }
@@ -263,11 +261,23 @@ private actor RepositoryStore {
             let stored = try storedLine(lineID)
             var value = try stored.value()
             guard value.kind == .todo else { throw RepositoryError.lineUnavailable }
-            guard value.isCompleted != completed else { return }
-            value.isCompleted = completed
-            value.completedAt = completed ? now : nil
+            guard applyCompletion(&value, completed: completed, effectiveCompleted: value.isCompleted, now: now) else { return }
             try saveLine(value, stored: stored, now: now)
         }
+    }
+
+    /// Both completion commands use this inside their existing transaction, so
+    /// snooze cancellation and completion share one revision/outbox payload.
+    private func applyCompletion(_ value: inout CardLine, completed: Bool, effectiveCompleted: Bool, now: Date) -> Bool {
+        let stateChanged = effectiveCompleted != completed
+        let clearsSnooze = completed && value.reminder?.snoozedUntil != nil
+        guard stateChanged || clearsSnooze else { return false }
+        if stateChanged {
+            value.isCompleted = completed
+            value.completedAt = completed ? now : nil
+        }
+        if completed { value.reminder?.snoozedUntil = nil }
+        return true
     }
 
     func reorder(cardID: CardID, orderedLineIDs: [LineID], now: Date) throws {

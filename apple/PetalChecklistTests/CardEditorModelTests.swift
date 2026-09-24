@@ -26,6 +26,8 @@ final class CardEditorModelTests: XCTestCase {
         XCTAssertEqual(requests.count, 1)
         XCTAssertNotNil(requests.first?.dailyComponents)
         XCTAssertEqual(requests.first?.id, "line.\(id.rawValue)")
+        let stored = try await f.repository.lines(cardID: f.fixtureCardID).first
+        XCTAssertNil(stored?.reminder?.snoozedUntil)
     }
     func testAppDelegateInstallsBrokerBeforeRepositoryAndRouterExist() async throws {
         let center = UNUserNotificationCenter.current()

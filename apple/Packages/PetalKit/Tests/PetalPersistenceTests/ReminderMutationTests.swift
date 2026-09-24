@@ -5,6 +5,37 @@ import PetalPersistence
 import PetalTestSupport
 
 struct ReminderMutationTests {
+    @Test(arguments: [false, true], [false, true])
+    func completionClearsSnoozeAtomicallyAndRepeatedCompletionIsIdempotent(widgetCommand: Bool, alreadyCompleted: Bool) async throws {
+        let now = DeterministicClock.referenceDate
+        let store = try ModelContainerFactory.makeInMemory()
+        let repo = SwiftDataPetalRepository(container: store)
+        let card = try await repo.createCard(title: "Card", now: now)
+        let line = try await repo.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Todo", isCompleted: alreadyCompleted,
+            reminder: Reminder(rule: .daily(localMinute: 600, timeZoneIdentifier: "UTC"), isEnabled: true,
+                snoozedUntil: now.addingTimeInterval(300))), now: now)
+        let count = try await repo.pendingOutboxCount()
+        let failing = SwiftDataPetalRepository(container: store, faultInjector: .failOnceBeforeSave)
+        func complete(_ target: SwiftDataPetalRepository, at instant: Date) async throws {
+            if widgetCommand { try await target.setWidgetCompleted(lineID: line.id, completed: true, now: instant, calendar: .current) }
+            else { try await target.setCompleted(lineID: line.id, completed: true, now: instant) }
+        }
+        await #expect(throws: RepositoryError.injectedFailure) { try await complete(failing, at: now.addingTimeInterval(1)) }
+        #expect(try await repo.lines(cardID: card.id).first == line)
+        #expect(try await repo.pendingOutboxCount() == count)
+        try await complete(repo, at: now.addingTimeInterval(1))
+        let completed = try #require(await repo.lines(cardID: card.id).first)
+        #expect(completed.isCompleted)
+        #expect(completed.reminder?.snoozedUntil == nil)
+        #expect(completed.completedAt == (alreadyCompleted ? now : now.addingTimeInterval(1)))
+        #expect(completed.revision == line.revision + 1)
+        #expect(try await repo.pendingOutboxCount() == count + 1)
+        let change = try #require(await repo.pendingOutbox().last)
+        #expect(try JSONDecoder().decode(CardLine.self, from: change.payload) == completed)
+        try await complete(repo, at: now.addingTimeInterval(2))
+        #expect(try await repo.lines(cardID: card.id).first == completed)
+        #expect(try await repo.pendingOutboxCount() == count + 1)
+    }
     @Test func invalidRulesRejectAtReminderBoundary() async throws {
         let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
         let line = try #require(await f.repository.lines(cardID: f.fixtureCardID).first)
