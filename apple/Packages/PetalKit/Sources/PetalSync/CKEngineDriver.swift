@@ -58,7 +58,11 @@ actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
         let plan = try buffer.prepareSend(records)
         pending = Dictionary(uniqueKeysWithValues: plan.records.map { ($0.recordID, $0) })
         deletions = plan.deletions
-        engine.state.remove(pendingRecordZoneChanges: plan.excludedDeletionIDs.map { .deleteRecord($0) })
+        // Also retire legacy deletes whose outbox intent was discarded by a
+        // replacement. Never execute an unversioned delete from a checkpoint.
+        engine.state.remove(pendingRecordZoneChanges: engine.state.pendingRecordZoneChanges.filter {
+            if case .deleteRecord = $0 { true } else { false }
+        })
         engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: CloudRecordMapper.zoneID))])
         engine.state.add(pendingRecordZoneChanges: pending.keys.map { .saveRecord($0) }
             + deletions.values.map { .deleteRecord($0) })
@@ -107,7 +111,8 @@ actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
         let records = Array(pending.values.sorted { $0.recordID.recordName < $1.recordID.recordName }.prefix(100))
         let removed = records.compactMap { deletions.removeValue(forKey: $0.recordID) }
         for record in records { pending.removeValue(forKey: record.recordID) }
-        // Each deletion and its tombstone share the atomic custom-zone batch.
+        // Entity redactions are conditional saves; no business-ID deletes are
+        // generated. Keep zone atomicity for related user records.
         return CKSyncEngine.RecordZoneChangeBatch(recordsToSave: records, recordIDsToDelete: removed, atomicByZone: true)
     }
 
@@ -119,8 +124,8 @@ actor CKEngineDriver: SyncEngineDriving, CKSyncEngineDelegate {
             case .fetchedRecordZoneChanges(let value):
                 try buffer.receive(value.modifications.map(\.record))
                 buffer.didDelete(value.deletions.map(\.recordID))
-                // Physical deletes are accompanied by PTTombstone in the same
-                // atomic zone transaction; tombstones are the merge authority.
+                // Legacy physical deletions may still arrive. New clients only
+                // save versioned entity redactions; fences remain merge authority.
             case .sentRecordZoneChanges(let value):
                 buffer.didSend(savedRecords: value.savedRecords, deletedRecordIDs: value.deletedRecordIDs,
                     failures: value.failedRecordSaves.map { .save($0.record, $0.error) }

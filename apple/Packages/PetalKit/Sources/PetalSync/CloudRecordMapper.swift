@@ -37,7 +37,7 @@ public enum CloudRecordMapper {
         case .card(let v): ("PTCard", v.id.rawValue, v.modifiedAt, v.revision, v.deviceID)
         case .line(let v): ("PTLine", v.id.rawValue, v.modifiedAt, v.revision, v.deviceID)
         case .userState: ("PTUserState", userStateID, record.generation.modifiedAt, 1, record.generation.deviceID)
-        case .tombstone(let v): ("PTTombstone", v.id, v.deletedAt, v.revision, v.deviceID)
+        case .tombstone(let v): (v.entity == .card ? "PTCard" : "PTLine", v.entityID, v.deletedAt, v.revision, v.deviceID)
         }
     }
 
@@ -58,10 +58,15 @@ public enum CloudRecordMapper {
         // Explicit zero clears a prior server value when a later normal reset
         // updates the same PTUserState or restored card/line record identity.
         record["resetIsReplacement"] = (value.generation.isReplacement ? 1 : 0) as CKRecordValue
+        record["isDeleted"] = { if case .tombstone = value.payload { 1 } else { 0 } }() as CKRecordValue
+        record["redactionVersion"] = 1 as CKRecordValue
         return record
     }
 
     public static func decode(_ record: CKRecord) throws -> ReplicatedRecord {
+        if record["redactionVersion"] != nil && record["redactionVersion"] as? Int64 != 1 {
+            throw CloudTransportError.invalidRecord
+        }
         if record["resetIsReplacement"] != nil,
            record["resetIsReplacement"] as? Int64 != 0 && record["resetIsReplacement"] as? Int64 != 1 {
             throw CloudTransportError.invalidRecord
@@ -77,7 +82,18 @@ public enum CloudRecordMapper {
             let value = ReplicatedRecord(payload: try JSONDecoder().decode(ReplicatedRecord.Payload.self, from: payload),
                 generation: ResetGeneration(id: id, modifiedAt: date, deviceID: device,
                     isReplacement: record["resetIsReplacement"] as? Int64 == 1))
-            let identity = identity(value)
+            var identity = identity(value)
+            if case .tombstone(let tombstone) = value.payload, record.recordType == "PTTombstone" {
+                // Legacy fences remain mergeable; new fences live at the entity
+                // identity so conditional saves protect concurrent restoration.
+                identity = ("PTTombstone", tombstone.id, tombstone.deletedAt, tombstone.revision, tombstone.deviceID)
+            } else if case .tombstone = value.payload {
+                guard record["isDeleted"] as? Int64 == 1, record["redactionVersion"] as? Int64 == 1 else {
+                    throw CloudTransportError.invalidRecord
+                }
+            } else if record["isDeleted"] != nil && record["isDeleted"] as? Int64 != 0 {
+                throw CloudTransportError.invalidRecord
+            }
             guard record.recordType == identity.type, record.recordID.recordName == identity.id.uuidString,
                   record["modifiedAt"] as? Date == identity.modifiedAt, record["revision"] as? Int64 == identity.revision,
                   record["deviceID"] as? String == identity.deviceID else { throw CloudTransportError.invalidRecord }

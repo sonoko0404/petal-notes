@@ -7,6 +7,59 @@ import PetalPersistence
 
 private let restoreNow = Date(timeIntervalSince1970: 1_800_000_000)
 
+@Test(arguments: ["title", "line", "status"], [false, true])
+func replacementPlaceholderPreservesCommittedEditsAcrossRestart(edit: String, acknowledged: Bool) async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    func open() throws -> SwiftDataPetalRepository {
+        SwiftDataPetalRepository(container: try ModelContainerFactory.makeShared(appGroupID: "test", containerURL: { _ in root }))
+    }
+    let sender = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let restored = try await sender.createCard(title: "Restored", now: restoreNow)
+    try await sender.replaceUserData(sender.transferSnapshot(), now: restoreNow)
+    let records = try await CloudRecordMapper.outbound(sender.syncSnapshot()).map(\.record)
+    let receiver = try open()
+    try await receiver.applyInbound(records.filter { if case .userState = $0.payload { true } else { false } }, token: nil, now: restoreNow)
+    let placeholder = try #require(await receiver.cards(scope: .active).first)
+    switch edit {
+    case "title": _ = try await receiver.updateCardTitle(placeholder.id, title: "Local title", now: restoreNow)
+    case "line": _ = try await receiver.addLine(NewLineDraft(cardID: placeholder.id, kind: .todo, text: "Local line"), now: restoreNow)
+    default: try await receiver.moveCardEnsuringInbox(placeholder.id, to: .archived, replacementInbox: nil, now: restoreNow)
+    }
+    // Acknowledged edits must still count as mutations after restart.
+    if acknowledged { try await receiver.acknowledgeSync(receiver.pendingOutbox()) }
+    let reopened = try open()
+    try await reopened.applyInbound(records, token: nil, now: restoreNow)
+    let preserved = try #require(await reopened.card(id: placeholder.id))
+    #expect(!preserved.isInbox)
+    if edit == "title" { #expect(preserved.title == "Local title") }
+    if edit == "status" { #expect(preserved.status == .archived) }
+    if edit == "line" { #expect(try await reopened.lines(cardID: placeholder.id).first?.text == "Local line") }
+    #expect(try await reopened.pendingOutbox().contains { $0.entityID == placeholder.id.rawValue && $0.operation == .upsert })
+    #expect(try await reopened.cards(scope: .active).filter(\.isInbox).map(\.id) == [restored.id])
+}
+
+@Test func replacementPlaceholderRollbackRetainsEditsOutboxAndReplayIdentity() async throws {
+    let sender = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    _ = try await sender.createCard(title: "Real Inbox", now: restoreNow)
+    try await sender.replaceUserData(sender.transferSnapshot(), now: restoreNow)
+    let records = try await CloudRecordMapper.outbound(sender.syncSnapshot()).map(\.record)
+    let container = try ModelContainerFactory.makeInMemory()
+    let receiver = SwiftDataPetalRepository(container: container)
+    try await receiver.applyInbound(records.filter { if case .userState = $0.payload { true } else { false } }, token: nil, now: restoreNow)
+    let placeholder = try #require(await receiver.cards(scope: .active).first)
+    _ = try await receiver.updateCardTitle(placeholder.id, title: "Keep on rollback", now: restoreNow)
+    let before = try await receiver.transferSnapshot()
+    let outbox = try await receiver.pendingOutbox()
+    let failing = SwiftDataPetalRepository(container: container, faultInjector: .failOnceBeforeSave)
+    await #expect(throws: RepositoryError.injectedFailure) { try await failing.applyInbound(records, token: Data([1]), now: restoreNow) }
+    #expect(try await receiver.transferSnapshot() == before)
+    #expect(try await receiver.pendingOutbox() == outbox)
+    try await failing.applyInbound(records, token: Data([1]), now: restoreNow)
+    #expect(try await failing.card(id: placeholder.id)?.title == "Keep on rollback")
+    #expect(try await failing.cards(scope: .active).filter(\.isInbox).count == 1)
+}
+
 @Test func replacementGenerationSurvivesOldTombstonesAcrossDevicesAndPartialReplay() async throws {
     let a = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     let b = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())

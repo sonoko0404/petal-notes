@@ -172,18 +172,10 @@ private actor MixedAtomicEngineFixture: SyncEngineDriving {
         let plan = try buffer.prepareSend(records)
         physicalDeleteAttempts += plan.deletions.values.map(\.recordName)
         var failures: [FailedRecordChange] = []
-        if !plan.deletions.isEmpty {
-            if firstUnknownSave {
-                let missingSave = try #require(plan.records.first { $0.recordType == "PTTombstone" })
-                failures = plan.records.map { .save($0, CKError($0.recordID == missingSave.recordID ? .unknownItem : .batchRequestFailed)) }
-                failures += plan.deletions.values.map { .delete($0, CKError(.batchRequestFailed)) }
-                firstUnknownSave = false
-            } else {
-                // Deterministic external boundary: targets are already absent.
-                // Retrying a physical delete would abort the same atomic batch.
-                failures = plan.records.map { .save($0, CKError(.batchRequestFailed)) }
-                failures += plan.deletions.values.map { .delete($0, CKError(.unknownItem)) }
-            }
+        if plan.records.contains(where: { $0["isDeleted"] as? Int64 == 1 }) && firstUnknownSave {
+            let missingSave = try #require(plan.records.first { $0["isDeleted"] as? Int64 == 1 })
+            failures = plan.records.map { .save($0, CKError($0.recordID == missingSave.recordID ? .unknownItem : .batchRequestFailed)) }
+            firstUnknownSave = false
         }
         buffer.didSend(savedRecords: failures.isEmpty ? plan.records : [], deletedRecordIDs: [],
             failures: reverse ? Array(failures.reversed()) : failures)
@@ -193,13 +185,13 @@ private actor MixedAtomicEngineFixture: SyncEngineDriving {
 }
 
 @Test(arguments: [false, true], [false, true])
-func mixedAtomicRecoveryMakesProgressAcrossRestartAndRepeatedReset(unknownSave: Bool, reverse: Bool) async throws {
+func redactionRecoveryMakesProgressAcrossRestartAndRepeatedReset(unknownSave: Bool, reverse: Bool) async throws {
     let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     let instant = Date(timeIntervalSince1970: 1_800_000_000)
     let card = try await repository.createCard(title: "Removed", now: instant)
     try await repository.deleteAllData(resetGeneration: UUID(), now: instant.addingTimeInterval(1))
     let engine = MixedAtomicEngineFixture(firstUnknownSave: unknownSave, reverse: reverse)
-    let attempts = unknownSave ? 3 : 2
+    let attempts = unknownSave ? 2 : 1
     for attempt in 1...attempts {
         let timestamp = instant.addingTimeInterval(Double(attempt) * 10)
         let restarted = CloudSyncCoordinator(repository: repository, transport: CKSyncTransport(engine: engine), now: { timestamp },
@@ -212,15 +204,14 @@ func mixedAtomicRecoveryMakesProgressAcrossRestartAndRepeatedReset(unknownSave: 
         }
     }
     let oldTargetAttempts = await engine.physicalDeleteAttempts.filter { $0 == card.id.rawValue.uuidString }.count
-    #expect(oldTargetAttempts == (unknownSave ? 2 : 1))
+    #expect(oldTargetAttempts == 0)
     try await repository.deleteAllData(resetGeneration: UUID(), now: instant.addingTimeInterval(100))
     for attempt in 1...2 {
         let timestamp = instant.addingTimeInterval(100 + Double(attempt) * 10)
         let restarted = CloudSyncCoordinator(repository: repository, transport: CKSyncTransport(engine: engine), now: { timestamp },
             sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
         await restarted.sync(reason: .launch)
-        if attempt == 1 { #expect(try await repository.pendingOutboxCount() == 4) }
-        else { #expect(try await repository.pendingOutboxCount() == 0) }
+        #expect(try await repository.pendingOutboxCount() == 0)
     }
     #expect(await engine.physicalDeleteAttempts.filter { $0 == card.id.rawValue.uuidString }.count == oldTargetAttempts)
     #expect(try await repository.cards(scope: .active).count == 1)
@@ -239,7 +230,7 @@ func mixedAtomicRetryAfterSelectionIsOrderIndependent(reverse: Bool) throws {
     #expect(throws: CloudTransportError.retryAfter(1e301)) { try buffer.sendResult() }
 }
 
-@Test func absentPhysicalDeleteRestartsAsTombstoneOnlyUntilPublicationConfirmed() async throws {
+@Test func legacyAbsentDeleteRestartsAsConditionalRedactionUntilPublicationConfirmed() async throws {
     let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     let instant = Date(timeIntervalSince1970: 1_800_000_000)
     let card = try await repository.createCard(title: "Delete", now: instant)
@@ -280,7 +271,7 @@ func mixedAtomicRetryAfterSelectionIsOrderIndependent(reverse: Bool) throws {
     replay.beginSend(); replay.didSend(savedRecords: replayPlan.records, deletedRecordIDs: [], failures: [])
     #expect(try replay.sendResult().savedRecordIDs == Set([CloudRecordMapper.identity(repeated.record).id]))
     try replay.receive([recordWithServerTag(ReplicatedRecord(payload: .card(card), generation: .initial))])
-    #expect(try replay.prepareSend([repeated.record]).deletions[tombstone.recordID] == target)
+    #expect(try replay.prepareSend([repeated.record]).deletions.isEmpty)
 }
 
 @Test(arguments: [false, true])
@@ -317,7 +308,8 @@ func mixedAtomicSaveDeleteFailurePreservesRootRecovery(unknownSave: Bool, revers
     #expect(result.savedRecordIDs.isEmpty)
     let resumed = try EngineEventBuffer(checkpoint: result.checkpoint)
     #expect(try resumed.prepare(unknownSave ? tombstoneValue : value).recordChangeTag == nil)
-    #expect(try resumed.prepare(unknownSave ? value : tombstoneValue).recordChangeTag == "server-tag-before-delete")
+    // Redaction and content now share one identity and therefore one tag.
+    #expect(try resumed.prepare(unknownSave ? value : tombstoneValue).recordChangeTag == nil)
 }
 
 private actor AccountLookupGate {

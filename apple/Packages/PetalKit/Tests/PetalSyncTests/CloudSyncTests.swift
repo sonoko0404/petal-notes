@@ -347,7 +347,7 @@ private actor FakeCloudTransport: CloudTransport {
     #expect(ck["modifiedAt"] as? Date == now.addingTimeInterval(1))
     #expect(ck["schemaVersion"] as? Int64 == 1)
     #expect(ck["reminderVersion"] as? Int64 == 1)
-    #expect(Set(ck.allKeys()) == Set(["payload", "modifiedAt", "revision", "deviceID", "schemaVersion", "reminderVersion", "resetGeneration", "resetModifiedAt", "resetDeviceID", "resetIsReplacement"]))
+    #expect(Set(ck.allKeys()) == Set(["payload", "modifiedAt", "revision", "deviceID", "schemaVersion", "reminderVersion", "resetGeneration", "resetModifiedAt", "resetDeviceID", "resetIsReplacement", "isDeleted", "redactionVersion"]))
     #expect(try CloudRecordMapper.decode(ck) == change.record)
     ck["schemaVersion"] = 2 as CKRecordValue
     #expect(throws: CloudTransportError.invalidRecord) { try CloudRecordMapper.decode(ck) }
@@ -357,6 +357,6 @@ private actor FakeCloudTransport: CloudTransport {
     #expect(try CloudRecordMapper.decode(CloudRecordMapper.encode(lineChange.record)) == lineChange.record)
     try await repository.deleteAllData(resetGeneration: UUID(), now: now.addingTimeInterval(10))
     let resetChanges = try CloudRecordMapper.outbound(try await repository.syncSnapshot())
-    #expect(try Set(resetChanges.map { try CloudRecordMapper.encode($0.record).recordType }) == Set(["PTCard", "PTUserState", "PTTombstone"]))
+    #expect(try Set(resetChanges.map { try CloudRecordMapper.encode($0.record).recordType }) == Set(["PTCard", "PTUserState", "PTLine"]))
     for change in resetChanges { #expect(try CloudRecordMapper.decode(CloudRecordMapper.encode(change.record)) == change.record) }
 }

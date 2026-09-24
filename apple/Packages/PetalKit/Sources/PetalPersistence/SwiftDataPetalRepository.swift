@@ -311,14 +311,23 @@ private actor RepositoryStore {
                 }
                 return rank($0) < rank($1)
             }
-            if let placeholder = metadata.replacementPlaceholderID,
-               records.contains(where: { if case .card(let card) = $0.payload { return card.status == .active && card.isInbox }; return false }) {
+            let restoredInbox = records.compactMap { record -> CardID? in
+                if case .card(let card) = record.payload, card.status == .active && card.isInbox { return card.id }
+                return nil
+            }.first
+            let preferredInbox = metadata.replacementPlaceholderID != nil ? restoredInbox : nil
+            if let placeholder = metadata.replacementPlaceholderID, restoredInbox != nil {
                 // A marker-only page gets a local, never-uploaded placeholder.
                 // Remove it when real replacement content arrives. Captures made
                 // while waiting remain as a normal card rather than losing edits.
-                if try lines(cardID: CardID(rawValue: placeholder)).isEmpty {
+                let placeholderCard = try cards(scope: .all).first { $0.id.rawValue == placeholder }
+                let hasChildren = try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).contains {
+                    try $0.value().cardID.rawValue == placeholder
+                }
+                let hasPendingEdits = try pendingOutbox().contains { $0.entityID == placeholder }
+                if placeholderCard?.revision == 1 && !hasChildren && !hasPendingEdits {
                     try removeEntity(.card, id: placeholder)
-                } else if var card = try cards(scope: .all).first(where: { $0.id.rawValue == placeholder }) {
+                } else if var card = placeholderCard {
                     card.isInbox = false
                     try saveCard(card, stored: storedCard(card.id), now: now)
                 }
@@ -395,15 +404,15 @@ private actor RepositoryStore {
             }
             metadata.token = token
             try syncMetadataRow().payload = JSONEncoder().encode(metadata)
-            try repairInbox(now: now)
+            try repairInbox(now: now, preferred: preferredInbox)
         }
     }
 
-    private func repairInbox(now: Date) throws {
+    private func repairInbox(now: Date, preferred: CardID? = nil) throws {
         let active = try cards(scope: .active)
         guard !active.isEmpty else { _ = try insertCard(title: "Inbox", isInbox: true, now: now); return }
         let flagged = active.filter(\.isInbox)
-        let chosen = (flagged.isEmpty ? active : flagged).min { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString }!
+        let chosen = active.first { $0.id == preferred } ?? (flagged.isEmpty ? active : flagged).min { $0.id.rawValue.uuidString < $1.id.rawValue.uuidString }!
         for var card in try cards(scope: .all) {
             let isInbox = card.id == chosen.id
             guard card.isInbox != isInbox else { continue }
@@ -414,7 +423,7 @@ private actor RepositoryStore {
 
     private func discardSupersededDeletion(entity: OutboxChange.Entity, id: UUID) throws {
         // Called only after generation/tombstone checks accept an inbound
-        // restoration. Never upload an older physical delete over that winner.
+        // restoration. Never upload an older redaction over that winner.
         for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredOutboxChange>()) {
             let value = try row.value()
             if value.entity == entity && value.entityID == id && value.operation == .delete { context.delete(row) }
@@ -784,7 +793,7 @@ private actor RepositoryStore {
             try syncMetadataRow().payload = JSONEncoder().encode(metadata)
         }
         // Retention also applies to queued snapshots: never keep expired user content
-        // in an earlier upsert or in a physical deletion's payload.
+        // in an earlier upsert or in a redaction's payload.
         for stored in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredOutboxChange>()) {
             let change = try stored.value()
             if change.entity == entity && change.entityID == id { context.delete(stored) }

@@ -72,11 +72,9 @@ struct EngineEventBuffer: Sendable {
         for value in values {
             let record = try prepare(value)
             result.records.append(record)
-            if case .tombstone(let tombstone) = value.payload {
-                let target = CKRecord.ID(recordName: tombstone.entityID.uuidString, zoneID: CloudRecordMapper.zoneID)
-                if absentRecordNames.contains(target.recordName) { result.excludedDeletionIDs.append(target) }
-                else { result.deletions[record.recordID] = target }
-            }
+            // Remove legacy queued bare-ID deletes from a resumed engine state.
+            // Permanent deletion is now a conditional, content-free entity save.
+            result.excludedDeletionIDs.append(record.recordID)
         }
         return result
     }
