@@ -10,6 +10,7 @@ public protocol PetalRepository: Sendable {
     func captureTodoLines(cardID: CardID, texts: [String], now: Date) async throws -> [CardLine]
     func updateLine(_ mutation: LineMutation, now: Date) async throws -> CardLine
     func setCompleted(lineID: LineID, completed: Bool, now: Date) async throws
+    func setWidgetCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) async throws
     func reorder(cardID: CardID, orderedLineIDs: [LineID], now: Date) async throws
     func moveCard(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) async throws
     func moveCardEnsuringInbox(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) async throws

@@ -1,6 +1,10 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "This Petal link is invalid.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"This Petal link is invalid."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此花瓣清单链接无效。"}}}},
+    "This card is unavailable. Choose a card in Petal.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"This card is unavailable. Choose a card in Petal."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此卡片不可用。请在花瓣清单中选择卡片。"}}}},
+    "Unable to open this card. Your draft has been kept. Please try again.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Unable to open this card. Your draft has been kept. Please try again."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法打开此卡片。草稿已保留，请重试。"}}}},
+    "Finish or cancel the current quick add before opening another card.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Finish or cancel the current quick add before opening another card."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"请完成或取消当前快速新增，再打开其他卡片。"}}}},
     "Add" : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "添加" } } } },
     "Add Todo" : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "新增待办" } } } },
     "All Cards" : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "所有卡片" } } } },

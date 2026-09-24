@@ -83,6 +83,9 @@ final class ControlledRepository: PetalRepository {
     }
     func updateLine(_ mutation: LineMutation, now: Date) async throws -> CardLine { try await base.updateLine(mutation, now: now) }
     func setCompleted(lineID: LineID, completed: Bool, now: Date) async throws { try await base.setCompleted(lineID: lineID, completed: completed, now: now) }
+    func setWidgetCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) async throws {
+        try await base.setWidgetCompleted(lineID: lineID, completed: completed, now: now, calendar: calendar)
+    }
     func reorder(cardID: CardID, orderedLineIDs: [LineID], now: Date) async throws { try await base.reorder(cardID: cardID, orderedLineIDs: orderedLineIDs, now: now) }
     func moveCard(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) async throws { try await base.moveCard(id, to: status, replacementInbox: replacementInbox, now: now) }
     func moveCardEnsuringInbox(_ id: CardID, to status: CardStatus, replacementInbox: CardID?, now: Date) async throws { try await base.moveCardEnsuringInbox(id, to: status, replacementInbox: replacementInbox, now: now) }

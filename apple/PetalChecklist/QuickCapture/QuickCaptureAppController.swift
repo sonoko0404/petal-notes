@@ -69,14 +69,13 @@ final class QuickCaptureAppController {
         }
     }
 
-    func handle(url: URL) {
-        guard url.scheme == "petal", url.host == "quick-add" else { return }
-        present(targetCardID: Self.cardTarget(for: url))
+    func presentFromDeepLink(targetCardID: CardID) throws {
+        guard let coordinator else { throw DeepLinkError.cannotOpen }
+        try coordinator.presentFromDeepLink(targetCardID: targetCardID)
     }
 
     static func cardTarget(for url: URL) -> CardID? {
-        guard url.scheme == "petal", url.host == "quick-add",
-              let uuid = UUID(uuidString: url.pathComponents.last ?? "") else { return nil }
-        return CardID(rawValue: uuid)
+        guard case .quickAdd(let id) = PetalDeepLink(url: url) else { return nil }
+        return id
     }
 }

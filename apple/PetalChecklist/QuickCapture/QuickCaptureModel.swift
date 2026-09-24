@@ -12,6 +12,7 @@ enum QuickCaptureTarget: Equatable {
 final class QuickCaptureModel {
     private let repository: any PetalRepository
     let target: QuickCaptureTarget
+    private var allowsInboxFallback: Bool
     private(set) var text = ""
     private(set) var isSubmitting = false
     private(set) var shouldClose = false
@@ -21,9 +22,10 @@ final class QuickCaptureModel {
     private(set) var focusLatencyMilliseconds: Double?
     @ObservationIgnored private var revision = 0
 
-    init(repository: any PetalRepository, target: QuickCaptureTarget) {
+    init(repository: any PetalRepository, target: QuickCaptureTarget, allowsInboxFallback: Bool = true) {
         self.repository = repository
         self.target = target
+        self.allowsInboxFallback = allowsInboxFallback
     }
 
     func edit(_ value: String) {
@@ -36,6 +38,11 @@ final class QuickCaptureModel {
 
     func recordFocusLatency(_ seconds: TimeInterval) {
         focusLatencyMilliseconds = seconds * 1_000
+    }
+
+    func requireExactTarget() {
+        allowsInboxFallback = false
+        targetNotice = nil
     }
 
     func submit() async {
@@ -68,6 +75,7 @@ final class QuickCaptureModel {
             if let card = try await repository.card(id: id), card.status == .active {
                 return id
             }
+            guard allowsInboxFallback else { throw DeepLinkError.unavailable }
             if targetNotice == nil {
                 targetNotice = String(localized: "The selected card is unavailable. Press Add again to save to Inbox.")
                 throw QuickCaptureError.confirmFallback

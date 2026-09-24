@@ -1,6 +1,16 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Card": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Card"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"卡片"}}}},
+    "Open Card": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Open Card"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"打开卡片"}}}},
+    "Quick Add to Card": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Quick Add to Card"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"快速新增到卡片"}}}},
+    "Toggle completion": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Toggle completion"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"切换完成状态"}}}},
+    "Text note": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Text note"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"文字笔记"}}}},
+    "Todo updated": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo updated"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"待办已更新"}}}},
+    "This item is unavailable. Open Petal to review the card.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"This item is unavailable. Open Petal to review the card."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此条目不可用。请打开花瓣清单查看卡片。"}}}},
+    "Unable to save. Please try again in Petal.": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Unable to save. Please try again in Petal."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法保存。请在花瓣清单中重试。"}}}},
+    "Change Todo Completion": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Change Todo Completion"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"更改待办完成状态"}}}},
+    "Todo": {"localizations":{"en":{"stringUnit":{"state":"translated","value":"Todo"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"待办"}}}},
     "A little space to plan": {
       "localizations": {
         "en": {

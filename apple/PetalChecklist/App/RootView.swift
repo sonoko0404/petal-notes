@@ -4,6 +4,7 @@ import PetalCore
 
 struct RootView: View {
     let capture: QuickCaptureAppController
+    @Environment(\.openWindow) private var openWindow
     @State private var router: AppRouter?
     @State private var startupError: String?
     @State private var pendingInboxMove: PendingInboxMove?
@@ -22,6 +23,7 @@ struct RootView: View {
                     if let error = router.errorMessage {
                         HStack {
                             Text(error)
+                                .accessibilityLabel(Text(error))
                             Button("Retry") { Task { await router.retryError() } }
                                 .accessibilityIdentifier("app.retry")
                         }
@@ -145,12 +147,17 @@ struct RootView: View {
                 capture.configure(repository: opened.repository) { [weak navigation] id in
                     await navigation?.captureDidCommit(to: id)
                 }
+                let links = DeepLinkHandler(router: navigation) { try capture.presentFromDeepLink(targetCardID: $0) }
+                await PetalNavigationRequests.shared.install { url in
+                    openWindow(id: "main")
+                    await links.handle(url)
+                }
                 capture.openFromLaunchArguments()
             } catch {
                 startupError = error.localizedDescription
             }
         }
-        .onOpenURL { capture.handle(url: $0) }
+        .onOpenURL { url in Task { await PetalNavigationRequests.shared.open(url) } }
     }
 
     private func icon(_ scope: LibraryScope) -> String {

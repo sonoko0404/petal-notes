@@ -5,6 +5,41 @@ import PetalTestSupport
 
 @MainActor
 final class QuickCaptureCoordinatorTests: XCTestCase {
+    func testDeepLinkCannotRetargetAnExistingDraftOrFallBackAfterArchive() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let a = try await repository.createCard(title: "A", now: .now)
+        let b = try await repository.createCard(title: "B", now: .now)
+        let coordinator = QuickCaptureCoordinator(repository: repository, panel: Panel(), foreground: Foreground(), currentPID: 999, clock: { 0 })
+        try coordinator.presentFromDeepLink(targetCardID: a.id)
+        coordinator.model?.edit("Keep target")
+        XCTAssertThrowsError(try coordinator.presentFromDeepLink(targetCardID: b.id))
+        XCTAssertEqual(coordinator.model?.target, .card(a.id))
+        XCTAssertEqual(coordinator.model?.text, "Keep target")
+        try await repository.moveCard(a.id, to: .archived, replacementInbox: nil, now: .now)
+        await coordinator.submit()
+        await coordinator.submit()
+        XCTAssertEqual(coordinator.model?.text, "Keep target")
+        XCTAssertNotNil(coordinator.model?.errorMessage)
+        let inboxes = try await repository.cards(scope: .active)
+        let inbox = try XCTUnwrap(inboxes.first(where: \.isInbox))
+        let lines = try await repository.lines(cardID: inbox.id)
+        XCTAssertTrue(lines.isEmpty)
+    }
+
+    func testDeepLinkMakesExistingSameTargetDraftStrict() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "A", now: .now)
+        let coordinator = QuickCaptureCoordinator(repository: repository, panel: Panel(), foreground: Foreground(), currentPID: 999, clock: { 0 })
+        coordinator.present(targetCardID: card.id)
+        coordinator.model?.edit("Original draft")
+        try coordinator.presentFromDeepLink(targetCardID: card.id)
+        try await repository.moveCard(card.id, to: .archived, replacementInbox: nil, now: .now)
+        await coordinator.submit()
+        await coordinator.submit()
+        XCTAssertEqual(coordinator.model?.text, "Original draft")
+        XCTAssertNotNil(coordinator.model?.errorMessage)
+    }
+
     private final class Panel: QuickCapturePanelClient {
         var showCount = 0
         var focusCount = 0

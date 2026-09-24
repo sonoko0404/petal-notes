@@ -2,6 +2,15 @@ import SwiftUI
 import WidgetKit
 import PetalCore
 
+enum WidgetRowControl {
+    case todo(ToggleTodoIntent), link(URL)
+    init(line: WidgetLine, cardID: CardID) {
+        self = line.kind == .todo
+            ? .todo(ToggleTodoIntent(lineID: line.id, completed: !line.isCompleted))
+            : .link(PetalDeepLink.card(cardID).url)
+    }
+}
+
 struct ChecklistWidgetView: View {
     let entry: ChecklistEntry
     @Environment(\.colorScheme) private var colorScheme
@@ -9,43 +18,54 @@ struct ChecklistWidgetView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 6) {
-                    Image(systemName: "leaf").accessibilityHidden(true)
-                    Text(entry.snapshot.title.isEmpty ? "Petal" : entry.snapshot.title)
-                        .font(.headline).lineLimit(1).truncationMode(.tail)
-                        .accessibilityAddTraits(.isHeader)
+                    Button(intent: OpenCardIntent(cardID: entry.snapshot.cardID)) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "leaf").accessibilityHidden(true)
+                            Text(entry.snapshot.title.isEmpty ? "Petal" : entry.snapshot.title)
+                                .font(.headline).lineLimit(1).truncationMode(.tail)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Open Card", tableName: "Widgets"))
+                    .accessibilityValue(Text(entry.snapshot.title))
+                    .disabled(entry.snapshot.cardState == .unavailable)
                     Spacer(minLength: 0)
                     if let badge = entry.snapshot.syncBadge { badgeView(badge) }
                     if entry.snapshot.cardState == .persistenceError {
                         Image(systemName: "exclamationmark.triangle")
                             .accessibilityLabel(Text("Unable to refresh", tableName: "Widgets"))
                     }
+                    Button(intent: QuickAddIntent(cardID: entry.snapshot.cardID)) {
+                        Image(systemName: "plus").frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Quick Add to Card", tableName: "Widgets"))
+                    .accessibilityValue(Text(entry.snapshot.title))
+                    .disabled(entry.snapshot.cardState != .normal && entry.snapshot.cardState != .empty && entry.snapshot.cardState != .persistenceError)
                 }
                 if !entry.snapshot.visibleLines.isEmpty {
-                    let reserved: CGFloat = entry.snapshot.hiddenCount > 0 ? 47 : 27
-                    let height = max(10, (geometry.size.height - reserved) / CGFloat(entry.snapshot.visibleLines.count))
+                    // Fixed widget families cannot fit 5/10 vertical 44pt rows.
+                    // Allocate the entire remaining height to non-overlapping full-width targets.
+                    let slots = entry.snapshot.visibleLines.count + (entry.snapshot.hiddenCount > 0 ? 1 : 0)
+                    let height = max(1, (geometry.size.height - 44) / CGFloat(slots))
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(entry.snapshot.visibleLines) { line in
-                            HStack(spacing: 8) {
-                                if line.kind == .todo {
-                                    Image(systemName: line.isCompleted ? "checkmark.circle.fill" : "circle")
-                                        .accessibilityHidden(true)
-                                }
-                                Text(line.text).strikethrough(line.isCompleted)
-                                    .lineLimit(1).truncationMode(.tail).minimumScaleFactor(0.8)
-                                Spacer(minLength: 0)
-                            }
-                            .frame(height: height, alignment: .leading)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(Text(line.text))
-                            .accessibilityValue(line.kind == .text ? Text("") :
-                                Text(line.isCompleted ? "Completed" : "Incomplete", tableName: "Widgets"))
+                            row(line, height: height)
                         }
-                    }
-                    if entry.snapshot.hiddenCount > 0 {
-                        Text("\(entry.snapshot.hiddenCount) more", tableName: "Widgets")
-                            .font(.caption).lineLimit(1)
+                        if entry.snapshot.hiddenCount > 0 {
+                            Link(destination: PetalDeepLink.card(entry.snapshot.cardID).url) {
+                                Text("\(entry.snapshot.hiddenCount) more", tableName: "Widgets")
+                                    .font(.caption).lineLimit(1)
+                                    .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint(Text("Open Card", tableName: "Widgets"))
+                        }
                     }
                 } else {
                     Spacer(minLength: 0)
@@ -63,6 +83,36 @@ struct ChecklistWidgetView: View {
                 Rectangle().fill(.regularMaterial).overlay(background.opacity(0.65))
             } else { background }
         }
+    }
+
+    @ViewBuilder private func row(_ line: WidgetLine, height: CGFloat) -> some View {
+        switch WidgetRowControl(line: line, cardID: entry.snapshot.cardID) {
+        case .todo(let intent):
+            Toggle(isOn: line.isCompleted, intent: intent) { rowLabel(line, height: height) }
+                .toggleStyle(.button).buttonStyle(.plain)
+                .accessibilityLabel(Text(line.text))
+                .accessibilityValue(Text(line.isCompleted ? "Completed" : "Incomplete", tableName: "Widgets"))
+                .accessibilityHint(Text("Toggle completion", tableName: "Widgets"))
+        case .link(let url):
+            Link(destination: url) { rowLabel(line, height: height) }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(line.text))
+                .accessibilityValue(Text("Text note", tableName: "Widgets"))
+                .accessibilityHint(Text("Open Card", tableName: "Widgets"))
+        }
+    }
+
+    private func rowLabel(_ line: WidgetLine, height: CGFloat) -> some View {
+        HStack(spacing: 8) {
+            if line.kind == .todo {
+                Image(systemName: line.isCompleted ? "checkmark.circle.fill" : "circle").accessibilityHidden(true)
+            }
+            Text(line.text).strikethrough(line.isCompleted)
+                .lineLimit(1).truncationMode(.tail).minimumScaleFactor(0.8)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private var stateMessage: LocalizedStringKey {

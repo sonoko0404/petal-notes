@@ -97,6 +97,33 @@ final class AppRouter {
         }, retry: { [weak self] in await self?.show(destination) })
     }
 
+    func follow(_ route: PetalDeepLink, presentCapture: @escaping @MainActor (CardID) throws -> Void) async {
+        await transition({ [self] request in
+            do {
+                try await flushEditor()
+                guard isCurrent(request) else { return }
+                let card = try await DeepLinkHandler.validate(route, repository: repository)
+                guard isCurrent(request) else { return }
+                switch route {
+                case .card(let id):
+                    let next = editors[id] ?? CardEditorModel(cardID: id, repository: repository)
+                    try await next.load()
+                    guard isCurrent(request) else { return }
+                    _ = try await DeepLinkHandler.validate(route, repository: repository)
+                    guard isCurrent(request) else { return }
+                    editors[id] = next
+                    next.setTransitionLocked(true)
+                    editor = next
+                    selectedCardID = id
+                    scope = card.status == .archived ? .archive : .allCards
+                case .quickAdd(let id):
+                    try presentCapture(id)
+                }
+            } catch let error as DeepLinkError { throw error
+            } catch { throw DeepLinkError.cannotOpen }
+        }, retry: { [weak self] in await self?.follow(route, presentCapture: presentCapture) })
+    }
+
     func createCard() async {
         await transition({ [self] request in
             try await flushEditor()

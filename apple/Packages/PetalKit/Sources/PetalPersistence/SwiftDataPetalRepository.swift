@@ -29,6 +29,10 @@ public struct SwiftDataPetalRepository: PetalRepository {
     public func setCompleted(lineID: LineID, completed: Bool, now: Date) async throws {
         try await store.setCompleted(lineID: lineID, completed: completed, now: now)
     }
+
+    public func setWidgetCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) async throws {
+        try await store.setWidgetCompleted(lineID: lineID, completed: completed, now: now, calendar: calendar)
+    }
     public func reorder(cardID: CardID, orderedLineIDs: [LineID], now: Date) async throws {
         try await store.reorder(cardID: cardID, orderedLineIDs: orderedLineIDs, now: now)
     }
@@ -214,6 +218,24 @@ private actor RepositoryStore {
             }
             try saveLine(value, stored: stored, now: now)
             return try stored.value()
+        }
+    }
+
+    func setWidgetCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) throws {
+        try transaction {
+            let stored = try storedLine(lineID)
+            var value = try stored.value()
+            guard value.kind == .todo else { throw RepositoryError.lineUnavailable }
+            guard try cards(scope: .active).contains(where: { $0.id == value.cardID }) else {
+                throw RepositoryError.cardUnavailable
+            }
+            var effectiveCompleted = value.isCompleted
+            if case .daily = value.reminder?.rule, let date = value.completedAt,
+               !calendar.isDate(date, inSameDayAs: now) { effectiveCompleted = false }
+            guard effectiveCompleted != completed else { return }
+            value.isCompleted = completed
+            value.completedAt = completed ? now : nil
+            try saveLine(value, stored: stored, now: now)
         }
     }
 

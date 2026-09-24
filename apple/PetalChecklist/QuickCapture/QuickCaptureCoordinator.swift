@@ -43,7 +43,13 @@ final class QuickCaptureCoordinator {
         self.onCommitted = onCommitted
     }
 
-    func present(targetCardID: CardID?) {
+    func presentFromDeepLink(targetCardID: CardID) throws {
+        if let model, model.target != .card(targetCardID) { throw DeepLinkError.captureInProgress }
+        model?.requireExactTarget()
+        present(targetCardID: targetCardID, allowsInboxFallback: false)
+    }
+
+    func present(targetCardID: CardID?, allowsInboxFallback: Bool = true) {
         if model != nil {
             if let frontmost = foreground.currentPID(), frontmost != currentPID {
                 previousPID = frontmost
@@ -55,7 +61,7 @@ final class QuickCaptureCoordinator {
         previousPID = frontmost == currentPID ? nil : frontmost
         invocationTime = clock()
         let target: QuickCaptureTarget = targetCardID.map { .card($0) } ?? .inbox
-        let capture = QuickCaptureModel(repository: repository, target: target)
+        let capture = QuickCaptureModel(repository: repository, target: target, allowsInboxFallback: allowsInboxFallback)
         model = capture
         panel.show(model: capture) { [weak self] in
             guard let self, let invocationTime = self.invocationTime else { return }
