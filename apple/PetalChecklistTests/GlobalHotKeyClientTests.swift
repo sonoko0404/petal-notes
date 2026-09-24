@@ -74,6 +74,25 @@ final class GlobalHotKeyClientTests: XCTestCase {
                        HotKeyChoice(keyCode: 40, modifiers: 0x900, title: "Old label"))
     }
 
+    func testRecordedOptionCommandARegistersAndSurvivesPersistence() throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let firstRegistrar = Registrar()
+        let firstClient = GlobalHotKeyClient(registrar: firstRegistrar, defaults: defaults)
+        let recorded = try XCTUnwrap(HotKeyChoice.recorded(
+            keyCode: UInt16(kVK_ANSI_A), flags: [.option, .command], characters: "a"
+        ))
+        XCTAssertEqual(recorded.title, "⌥⌘A")
+        firstClient.configure(recorded)
+        XCTAssertEqual(firstRegistrar.active, recorded)
+        XCTAssertNil(firstClient.errorMessage)
+
+        let secondRegistrar = Registrar()
+        let restored = GlobalHotKeyClient(registrar: secondRegistrar, defaults: defaults)
+        restored.start()
+        XCTAssertEqual(restored.selection.title, "⌥⌘A")
+        XCTAssertEqual(secondRegistrar.active, recorded)
+    }
+
     func testCarbonHandlerIgnoresUnrelatedHotKeyIdentifiers() {
         var callbacks = 0
         let wrongSignature = EventHotKeyID(signature: 0x12345678, id: 1)

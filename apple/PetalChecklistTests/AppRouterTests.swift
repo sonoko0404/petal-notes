@@ -43,6 +43,30 @@ final class AppRouterTests: XCTestCase {
         XCTAssertEqual(router.editor?.lines.map(\.text), ["Captured"])
         XCTAssertNil(router.editor?.unsavedTitle)
     }
+
+    func testCaptureRefreshDoesNotSupersedePendingCardSelection() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let a = try await base.createCard(title: "A", now: .now)
+        let b = try await base.createCard(title: "B", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(a.id)
+        _ = try await base.captureTodoLines(cardID: a.id, texts: ["Captured"], now: .now)
+
+        repository.cardGate.pauseNext()
+        let selection = Task { await router.select(b.id) }
+        await repository.cardGate.waitUntilEntered()
+        let refresh = Task { await router.captureDidCommit(to: a.id) }
+        await Task.yield()
+        repository.cardGate.resume()
+        await selection.value
+        await refresh.value
+
+        XCTAssertEqual(router.selectedCardID, b.id)
+        XCTAssertEqual(router.editor?.cardID, b.id)
+        XCTAssertNil(router.errorMessage)
+    }
+
     func testOverlappingSelectionPublishesLatestAndBlocksEditingDuringTransition() async throws {
         let base = try await InMemoryPetalRepository.bootstrapped()
         let active = try await base.cards(scope: .active)

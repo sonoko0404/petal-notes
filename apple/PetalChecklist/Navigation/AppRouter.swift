@@ -32,9 +32,10 @@ final class AppRouter {
     private func isCurrent(_ request: Int) -> Bool { request == latestRequest && !closing }
 
     private func transition(_ operation: @escaping @MainActor (Int) async throws -> Void,
-                            retry: @escaping @MainActor () async -> Void) async {
+                            retry: @escaping @MainActor () async -> Void,
+                            supersedesUserIntent: Bool = true) async {
         guard !closing else { return }
-        latestRequest += 1
+        if supersedesUserIntent { latestRequest += 1 }
         let request = latestRequest
         pendingTransitions += 1
         isTransitioning = true
@@ -47,15 +48,17 @@ final class AppRouter {
                 isTransitioning = pendingTransitions > 0 || closing
                 if !isTransitioning { for model in editors.values { model.setTransitionLocked(false) } }
             }
-            guard isCurrent(request) else { return }
-            retryAction = nil
+            guard !closing, (!supersedesUserIntent || isCurrent(request)) else { return }
+            if supersedesUserIntent { retryAction = nil }
             do {
                 try await operation(request)
-                guard isCurrent(request) else { return }
-                errorMessage = nil
-                retryAction = nil
+                guard !closing, (!supersedesUserIntent || isCurrent(request)) else { return }
+                if supersedesUserIntent {
+                    errorMessage = nil
+                    retryAction = nil
+                }
             } catch {
-                guard isCurrent(request) else { return }
+                guard !closing, (!supersedesUserIntent || isCurrent(request)) else { return }
                 errorMessage = error.localizedDescription
                 retryAction = retryAction ?? retry
             }
@@ -133,14 +136,14 @@ final class AppRouter {
     }
 
     func captureDidCommit(to id: CardID) async {
-        await transition({ [self] request in
+        await transition({ [self] _ in
             if selectedCardID == id, let current = editor {
                 try await flushEditor()
-                guard isCurrent(request), selectedCardID == id, editor === current else { return }
+                guard !closing, selectedCardID == id, editor === current else { return }
                 try await current.load()
             }
             try await library.refresh()
-        }, retry: { [weak self] in await self?.captureDidCommit(to: id) })
+        }, retry: { [weak self] in await self?.captureDidCommit(to: id) }, supersedesUserIntent: false)
     }
 
     func retryError() async {

@@ -8,8 +8,9 @@ struct HotKeyChoice: Codable, Hashable, Identifiable {
     let modifiers: UInt32
     private let keyLabel: String?
     var id: String { "\(keyCode)-\(modifiers)" }
+    var isOff: Bool { keyCode == 0 && modifiers == 0 }
     var title: String {
-        guard keyCode != 0 else { return String(localized: "Off") }
+        guard !isOff else { return String(localized: "Off") }
         var prefix = ""
         if modifiers & UInt32(controlKey) != 0 { prefix += "⌃" }
         if modifiers & UInt32(optionKey) != 0 { prefix += "⌥" }
@@ -20,7 +21,7 @@ struct HotKeyChoice: Codable, Hashable, Identifiable {
     init(keyCode: UInt32, modifiers: UInt32, title: String) {
         self.keyCode = keyCode
         self.modifiers = modifiers
-        keyLabel = keyCode == 0 ? nil : title.last.map { String($0).uppercased() }
+        keyLabel = keyCode == 0 && modifiers == 0 ? nil : title.last.map { String($0).uppercased() }
     }
     private enum CodingKeys: String, CodingKey { case keyCode, modifiers, keyLabel, title }
     init(from decoder: Decoder) throws {
@@ -28,7 +29,7 @@ struct HotKeyChoice: Codable, Hashable, Identifiable {
         keyCode = try values.decode(UInt32.self, forKey: .keyCode)
         modifiers = try values.decode(UInt32.self, forKey: .modifiers)
         let legacyTitle = try values.decodeIfPresent(String.self, forKey: .title)
-        keyLabel = keyCode == 0 ? nil :
+        keyLabel = keyCode == 0 && modifiers == 0 ? nil :
             (try values.decodeIfPresent(String.self, forKey: .keyLabel)
              ?? legacyTitle?.last.map { String($0).uppercased() })
     }
@@ -107,7 +108,7 @@ final class GlobalHotKeyClient {
         selection = choice
         defaults.set(try? JSONEncoder().encode(choice), forKey: key)
         errorMessage = nil
-        guard choice.keyCode != 0 else { return }
+        guard !choice.isOff else { return }
         do {
             try registrar.register(choice) { [weak self] in self?.onPress?() }
         } catch {
