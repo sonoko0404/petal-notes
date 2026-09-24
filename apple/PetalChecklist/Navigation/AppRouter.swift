@@ -132,6 +132,17 @@ final class AppRouter {
         }, retry: { [weak self] in await self?.restore(id) })
     }
 
+    func captureDidCommit(to id: CardID) async {
+        await transition({ [self] request in
+            if selectedCardID == id, let current = editor {
+                try await flushEditor()
+                guard isCurrent(request), selectedCardID == id, editor === current else { return }
+                try await current.load()
+            }
+            try await library.refresh()
+        }, retry: { [weak self] in await self?.captureDidCommit(to: id) })
+    }
+
     func retryError() async {
         let retry = retryAction
         errorMessage = nil

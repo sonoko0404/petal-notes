@@ -82,4 +82,79 @@ final class QuickCaptureCoordinatorTests: XCTestCase {
         XCTAssertEqual(QuickCaptureAppController.cardTarget(for: url)?.rawValue, uuid)
         XCTAssertNil(QuickCaptureAppController.cardTarget(for: URL(string: "petal://card/20F46FAB-23E3-4914-B0E0-5BE0CB39045F")!))
     }
+
+    func testSuccessfulSubmissionPublishesCommittedCardForRefresh() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let active = try await repository.cards(scope: .active)
+        let inbox = try XCTUnwrap(active.first(where: \.isInbox))
+        let panel = Panel()
+        let foreground = Foreground()
+        var notified: [CardID] = []
+        let coordinator = QuickCaptureCoordinator(
+            repository: repository, panel: panel, foreground: foreground, currentPID: 999,
+            clock: { 0 }, onCommitted: { notified.append($0) }
+        )
+        coordinator.present(targetCardID: nil)
+        coordinator.model?.edit("Captured")
+        await coordinator.submit()
+        XCTAssertEqual(notified, [inbox.id])
+        let lines = try await repository.lines(cardID: inbox.id)
+        XCTAssertEqual(lines.map(\.text), ["Captured"])
+    }
+
+    func testFocusMeasurementFailsBudgetAboveThreeHundredMilliseconds() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let panel = Panel()
+        let foreground = Foreground()
+        var time = 10.0
+        let coordinator = QuickCaptureCoordinator(repository: repository, panel: panel, foreground: foreground,
+                                                  currentPID: 999, clock: { time })
+        coordinator.present(targetCardID: nil)
+        time = 10.301
+        panel.onFirstResponder?()
+        let latency = try XCTUnwrap(coordinator.lastFocusLatency)
+        XCTAssertEqual(latency, 0.301, accuracy: 0.001)
+        XCTAssertEqual(coordinator.focusBudgetMet, false)
+        let milliseconds = try XCTUnwrap(coordinator.model?.focusLatencyMilliseconds)
+        XCTAssertEqual(milliseconds, 301, accuracy: 0.1)
+    }
+
+    func testForegroundRestoreRejectsReusedPIDIdentity() {
+        let launch = Date(timeIntervalSince1970: 100)
+        let expected = ForegroundApplicationIdentity(pid: 1234, bundleIdentifier: "com.example.original", launchDate: launch)
+        XCTAssertTrue(WorkspaceForegroundClient.canRestore(expected: expected, actual: expected))
+        XCTAssertFalse(WorkspaceForegroundClient.canRestore(
+            expected: expected,
+            actual: ForegroundApplicationIdentity(pid: 1234, bundleIdentifier: "com.example.other", launchDate: launch)
+        ))
+        XCTAssertFalse(WorkspaceForegroundClient.canRestore(
+            expected: expected,
+            actual: ForegroundApplicationIdentity(pid: 1234, bundleIdentifier: "com.example.original", launchDate: launch.addingTimeInterval(1))
+        ))
+    }
+
+    func testRepeatedSubmitDuringRefreshDoesNotRepublishCommittedCapture() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let panel = Panel()
+        let foreground = Foreground()
+        let gate = RepositoryGate()
+        gate.pauseNext()
+        var notifications = 0
+        let coordinator = QuickCaptureCoordinator(
+            repository: repository, panel: panel, foreground: foreground, currentPID: 999,
+            clock: { 0 }, onCommitted: {
+                _ = $0
+                notifications += 1
+                await gate.enter()
+            }
+        )
+        coordinator.present(targetCardID: nil)
+        coordinator.model?.edit("Only once")
+        let first = Task { await coordinator.submit() }
+        await gate.waitUntilEntered()
+        await coordinator.submit()
+        XCTAssertEqual(notifications, 1)
+        gate.resume()
+        await first.value
+    }
 }

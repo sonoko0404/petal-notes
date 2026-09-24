@@ -25,6 +25,11 @@ struct QuickCaptureView: View {
                               onFirstResponder: onFirstResponder)
                 .frame(height: 110)
                 .accessibilityIdentifier("quickCapture.text")
+            if ProcessInfo.processInfo.arguments.contains("-ui-testing"),
+               let milliseconds = model.focusLatencyMilliseconds {
+                Text(String(format: "%.3f", milliseconds))
+                    .accessibilityIdentifier("quickCapture.focusLatencyMs")
+            }
             if let notice = model.targetNotice {
                 Text(notice).foregroundStyle(.orange)
                     .accessibilityIdentifier("quickCapture.targetNotice")
@@ -105,19 +110,29 @@ private struct CaptureTextEditor: NSViewRepresentable {
     }
 }
 
-private final class CaptureNSTextView: NSTextView {
+final class CaptureNSTextView: NSTextView {
     var onKey: ((QuickCaptureKeyAction) -> Void)?
     var onFirstResponder: (() -> Void)?
     private var hasReportedFocus = false
 
     override func keyDown(with event: NSEvent) {
-        let action = QuickCaptureKeyAction.action(
-            keyCode: event.keyCode, shift: event.modifierFlags.contains(.shift)
-        )
+        dispatchKey(keyCode: event.keyCode, shift: event.modifierFlags.contains(.shift),
+                    markedText: hasMarkedText(),
+                    passThrough: { super.keyDown(with: event) },
+                    insertNewline: { self.insertText("\n", replacementRange: self.selectedRange()) })
+    }
+
+    func dispatchKey(keyCode: UInt16, shift: Bool, markedText: Bool,
+                     passThrough: () -> Void, insertNewline: () -> Void) {
+        if markedText && (keyCode == 36 || keyCode == 76 || keyCode == 53) {
+            passThrough()
+            return
+        }
+        let action = QuickCaptureKeyAction.action(keyCode: keyCode, shift: shift)
         switch action {
         case .submit, .cancel: onKey?(action)
-        case .newline: insertText("\n", replacementRange: selectedRange())
-        case .ordinary: super.keyDown(with: event)
+        case .newline: insertNewline()
+        case .ordinary: passThrough()
         }
     }
 

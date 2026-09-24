@@ -17,15 +17,9 @@ final class QuickCaptureModel {
     private(set) var shouldClose = false
     private(set) var errorMessage: String?
     private(set) var targetNotice: String?
+    private(set) var lastCommittedCardID: CardID?
+    private(set) var focusLatencyMilliseconds: Double?
     @ObservationIgnored private var revision = 0
-    @ObservationIgnored private var pending: Pending?
-
-    private struct Pending {
-        let revision: Int
-        let lines: [String]
-        var nextIndex: Int
-        var cardID: CardID?
-    }
 
     init(repository: any PetalRepository, target: QuickCaptureTarget) {
         self.repository = repository
@@ -40,37 +34,25 @@ final class QuickCaptureModel {
         errorMessage = nil
     }
 
+    func recordFocusLatency(_ seconds: TimeInterval) {
+        focusLatencyMilliseconds = seconds * 1_000
+    }
+
     func submit() async {
         guard !isSubmitting, !shouldClose else { return }
-        if pending == nil {
-            let lines = text.components(separatedBy: .newlines)
-                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            guard !lines.isEmpty else { return }
-            pending = Pending(revision: revision, lines: lines, nextIndex: 0, cardID: nil)
-        }
+        let submittedRevision = revision
+        let lines = text.components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !lines.isEmpty else { return }
+        lastCommittedCardID = nil
         isSubmitting = true
         defer { isSubmitting = false }
         do {
-            let cardID: CardID
-            if let committedTarget = pending?.cardID {
-                cardID = committedTarget
-            } else {
-                cardID = try await resolveTarget()
-                pending?.cardID = cardID
-            }
-            while let next = pending, next.nextIndex < next.lines.count {
-                guard try await repository.card(id: cardID)?.status == .active else {
-                    throw QuickCaptureError.targetUnavailableAfterPartialSave
-                }
-                _ = try await repository.addLine(
-                    NewLineDraft(cardID: cardID, kind: .todo, text: next.lines[next.nextIndex]), now: .now
-                )
-                pending?.nextIndex += 1
-            }
-            let completed = pending
-            pending = nil
+            let cardID = try await resolveTarget()
+            _ = try await repository.captureTodoLines(cardID: cardID, texts: lines, now: .now)
+            lastCommittedCardID = cardID
             errorMessage = nil
-            if completed?.revision == revision {
+            if submittedRevision == revision {
                 text = ""
                 shouldClose = true
             }
@@ -99,13 +81,11 @@ final class QuickCaptureModel {
 }
 
 private enum QuickCaptureError: LocalizedError {
-    case inboxUnavailable, confirmFallback, targetUnavailableAfterPartialSave
+    case inboxUnavailable, confirmFallback
     var errorDescription: String? {
         switch self {
         case .inboxUnavailable: String(localized: "Inbox is unavailable. Your draft has been kept.")
         case .confirmFallback: nil
-        case .targetUnavailableAfterPartialSave:
-            String(localized: "The card changed before all lines were saved. Your draft has been kept.")
         }
     }
 }

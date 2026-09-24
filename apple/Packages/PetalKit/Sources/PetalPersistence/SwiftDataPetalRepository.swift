@@ -22,6 +22,9 @@ public struct SwiftDataPetalRepository: PetalRepository {
     public func pendingOutbox() async throws -> [OutboxChange] { try await store.pendingOutbox() }
     public func lines(cardID: CardID) async throws -> [CardLine] { try await store.lines(cardID: cardID) }
     public func addLine(_ draft: NewLineDraft, now: Date) async throws -> CardLine { try await store.addLine(draft, now: now) }
+    public func captureTodoLines(cardID: CardID, texts: [String], now: Date) async throws -> [CardLine] {
+        try await store.captureTodoLines(cardID: cardID, texts: texts, now: now)
+    }
     public func updateLine(_ mutation: LineMutation, now: Date) async throws -> CardLine { try await store.updateLine(mutation, now: now) }
     public func setCompleted(lineID: LineID, completed: Bool, now: Date) async throws {
         try await store.setCompleted(lineID: lineID, completed: completed, now: now)
@@ -144,17 +147,35 @@ private actor RepositoryStore {
                 throw RepositoryError.cardUnavailable
             }
             let index = try (lines(cardID: draft.cardID).map(\.sortIndex).max() ?? -1) + 1
-            let completed = draft.kind == .todo && draft.isCompleted
-            let value = CardLine(id: LineID(rawValue: UUID()), cardID: draft.cardID, kind: draft.kind,
-                                 text: draft.text, sortIndex: index, isCompleted: completed,
-                                 completedAt: completed ? now : nil, lastDailyCompletionKey: nil,
-                                 dailyStreak: 0, reminder: draft.kind == .todo ? draft.reminder : nil,
-                                 createdAt: now, modifiedAt: now, deletedAt: nil, revision: 1, deviceID: try deviceID())
-            let stored = try PetalSchemaV1.StoredLine(value)
-            context.insert(stored)
-            try appendChange(entity: .line, id: stored.id, payload: stored.payload, now: now)
-            return value
+            return try insertLine(draft, sortIndex: index, now: now)
         }
+    }
+
+    func captureTodoLines(cardID: CardID, texts: [String], now: Date) throws -> [CardLine] {
+        try transaction {
+            guard try cards(scope: .all).contains(where: { $0.id == cardID && $0.status == .active }) else {
+                throw RepositoryError.cardUnavailable
+            }
+            let nonempty = texts.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            var index = try (lines(cardID: cardID).map(\.sortIndex).max() ?? -1) + 1
+            return try nonempty.map { text in
+                defer { index += 1 }
+                return try insertLine(NewLineDraft(cardID: cardID, kind: .todo, text: text), sortIndex: index, now: now)
+            }
+        }
+    }
+
+    private func insertLine(_ draft: NewLineDraft, sortIndex: Int64, now: Date) throws -> CardLine {
+        let completed = draft.kind == .todo && draft.isCompleted
+        let value = CardLine(id: LineID(rawValue: UUID()), cardID: draft.cardID, kind: draft.kind,
+                             text: draft.text, sortIndex: sortIndex, isCompleted: completed,
+                             completedAt: completed ? now : nil, lastDailyCompletionKey: nil,
+                             dailyStreak: 0, reminder: draft.kind == .todo ? draft.reminder : nil,
+                             createdAt: now, modifiedAt: now, deletedAt: nil, revision: 1, deviceID: try deviceID())
+        let stored = try PetalSchemaV1.StoredLine(value)
+        context.insert(stored)
+        try appendChange(entity: .line, id: stored.id, payload: stored.payload, now: now)
+        return value
     }
 
     private func storedLine(_ id: LineID) throws -> PetalSchemaV1.StoredLine {

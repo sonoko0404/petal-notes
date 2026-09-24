@@ -142,7 +142,9 @@ struct RootView: View {
                 let navigation = AppRouter(repository: opened.repository, library: model)
                 router = navigation
                 if let inbox = model.cards.first { await navigation.select(inbox.id) }
-                capture.configure(repository: opened.repository)
+                capture.configure(repository: opened.repository) { [weak navigation] id in
+                    await navigation?.captureDidCommit(to: id)
+                }
                 capture.openFromLaunchArguments()
             } catch {
                 startupError = error.localizedDescription

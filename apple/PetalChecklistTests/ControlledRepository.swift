@@ -36,14 +36,16 @@ final class ControlledRepository: PetalRepository {
     let base: any PetalRepository
     let titleGate = RepositoryGate()
     let addGate = RepositoryGate()
+    let captureGate = RepositoryGate()
     let searchGate = RepositoryGate()
     let cardGate = RepositoryGate()
     var failNextCard = false
     var failNextAdd = false
-    var failOnAddNumber: Int?
-    private var addCalls = 0
+    var failNextCapture = false
+    var archiveBeforeCapture = false
     var failNextSearch = false
     var failNextCards = false
+    var failNextTitle = false
 
     init(base: any PetalRepository) { self.base = base }
     func bootstrap(now: Date) async throws { try await base.bootstrap(now: now) }
@@ -59,10 +61,20 @@ final class ControlledRepository: PetalRepository {
     func lines(cardID: CardID) async throws -> [CardLine] { try await base.lines(cardID: cardID) }
     func addLine(_ draft: NewLineDraft, now: Date) async throws -> CardLine {
         await addGate.enter()
-        addCalls += 1
-        if addCalls == failOnAddNumber { throw RepositoryError.injectedFailure }
         if failNextAdd { failNextAdd = false; throw RepositoryError.injectedFailure }
         return try await base.addLine(draft, now: now)
+    }
+    func captureTodoLines(cardID: CardID, texts: [String], now: Date) async throws -> [CardLine] {
+        await captureGate.enter()
+        if archiveBeforeCapture {
+            archiveBeforeCapture = false
+            try await base.moveCard(cardID, to: .archived, replacementInbox: nil, now: now)
+        }
+        if failNextCapture {
+            failNextCapture = false
+            throw RepositoryError.injectedFailure
+        }
+        return try await base.captureTodoLines(cardID: cardID, texts: texts, now: now)
     }
     func updateLine(_ mutation: LineMutation, now: Date) async throws -> CardLine { try await base.updateLine(mutation, now: now) }
     func setCompleted(lineID: LineID, completed: Bool, now: Date) async throws { try await base.setCompleted(lineID: lineID, completed: completed, now: now) }
@@ -81,7 +93,11 @@ final class ControlledRepository: PetalRepository {
     func deleteAllData(resetGeneration: UUID, now: Date) async throws { try await base.deleteAllData(resetGeneration: resetGeneration, now: now) }
     func resetGeneration() async throws -> UUID? { try await base.resetGeneration() }
     func createCard(title: String, now: Date) async throws -> Card { try await base.createCard(title: title, now: now) }
-    func updateCardTitle(_ id: CardID, title: String, now: Date) async throws -> Card { await titleGate.enter(); return try await base.updateCardTitle(id, title: title, now: now) }
+    func updateCardTitle(_ id: CardID, title: String, now: Date) async throws -> Card {
+        await titleGate.enter()
+        if failNextTitle { failNextTitle = false; throw RepositoryError.injectedFailure }
+        return try await base.updateCardTitle(id, title: title, now: now)
+    }
     func pendingOutboxCount() async throws -> Int { try await base.pendingOutboxCount() }
     func pendingOutbox() async throws -> [OutboxChange] { try await base.pendingOutbox() }
 }

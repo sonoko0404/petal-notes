@@ -23,20 +23,24 @@ final class QuickCaptureCoordinator {
     private let foreground: any QuickCaptureForegroundClient
     private let currentPID: pid_t
     private let clock: () -> TimeInterval
+    private let onCommitted: (@MainActor (CardID) async -> Void)?
     private let logger = Logger(subsystem: "com.petalchecklist.mac", category: "QuickCapture")
     private var previousPID: pid_t?
     private var invocationTime: TimeInterval?
     private(set) var model: QuickCaptureModel?
     private(set) var lastFocusLatency: TimeInterval?
+    private(set) var focusBudgetMet: Bool?
 
     init(repository: any PetalRepository, panel: any QuickCapturePanelClient,
          foreground: any QuickCaptureForegroundClient, currentPID: pid_t,
-         clock: @escaping () -> TimeInterval) {
+         clock: @escaping () -> TimeInterval,
+         onCommitted: (@MainActor (CardID) async -> Void)? = nil) {
         self.repository = repository
         self.panel = panel
         self.foreground = foreground
         self.currentPID = currentPID
         self.clock = clock
+        self.onCommitted = onCommitted
     }
 
     func present(targetCardID: CardID?) {
@@ -57,14 +61,19 @@ final class QuickCaptureCoordinator {
             guard let self, let invocationTime = self.invocationTime else { return }
             let latency = self.clock() - invocationTime
             self.lastFocusLatency = latency
+            self.focusBudgetMet = latency <= 0.300
+            capture.recordFocusLatency(latency)
             self.logger.info("Invocation to first responder: \(latency, privacy: .public) seconds")
             self.invocationTime = nil
         }
     }
 
     func submit() async {
-        guard let current = model else { return }
+        guard let current = model, !current.isSubmitting, !current.shouldClose else { return }
         await current.submit()
+        if let cardID = current.lastCommittedCardID {
+            await onCommitted?(cardID)
+        }
         if current.shouldClose, model === current { dismiss() }
     }
 

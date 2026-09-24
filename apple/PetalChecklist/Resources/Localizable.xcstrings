@@ -36,7 +36,6 @@
     "Settings" : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "设置" } } } },
     "Shift+Return for a new line" : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Shift+Return 换行" } } } },
     "The selected card is unavailable. Press Add again to save to Inbox." : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "所选卡片不可用。再次点按添加可保存到收集箱。" } } } },
-    "The card changed before all lines were saved. Your draft has been kept." : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "卡片在所有行保存完成前发生了变化。草稿已保留。" } } } },
     "This shortcut is unavailable. Choose another shortcut or turn it off." : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "此快捷键不可用。请选择其他快捷键或关闭快捷键。" } } } },
     "Inbox is unavailable. Your draft has been kept." : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "收集箱不可用。草稿已保留。" } } } },
     "Text" : { "localizations" : { "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "文字" } } } },

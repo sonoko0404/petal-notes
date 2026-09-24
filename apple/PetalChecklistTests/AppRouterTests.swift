@@ -6,6 +6,43 @@ import PetalTestSupport
 
 @MainActor
 final class AppRouterTests: XCTestCase {
+    func testCaptureCommitFlushesDraftThenRefreshesVisibleEditor() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let active = try await base.cards(scope: .active)
+        let inbox = try XCTUnwrap(active.first(where: \.isInbox))
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(inbox.id)
+        router.editor?.editTitle("Local draft")
+        router.editor?.editNewLine("Unsubmitted")
+        _ = try await base.captureTodoLines(cardID: inbox.id, texts: ["Captured"], now: .now)
+        await router.captureDidCommit(to: inbox.id)
+        let saved = try await base.card(id: inbox.id)
+        XCTAssertEqual(saved?.title, "Local draft")
+        XCTAssertEqual(router.editor?.lines.map(\.text), ["Captured"])
+        XCTAssertEqual(router.editor?.newLineDraft, "Unsubmitted")
+        XCTAssertNil(router.editor?.unsavedTitle)
+    }
+
+    func testCaptureRefreshFailurePreservesUnsavedEditorDraftForRetry() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let active = try await base.cards(scope: .active)
+        let inbox = try XCTUnwrap(active.first(where: \.isInbox))
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(inbox.id)
+        router.editor?.editTitle("Keep draft")
+        _ = try await base.captureTodoLines(cardID: inbox.id, texts: ["Captured"], now: .now)
+        repository.failNextTitle = true
+        await router.captureDidCommit(to: inbox.id)
+        XCTAssertEqual(router.editor?.title, "Keep draft")
+        XCTAssertEqual(router.editor?.unsavedTitle, "Keep draft")
+        XCTAssertTrue(router.editor?.lines.isEmpty == true)
+        XCTAssertNotNil(router.errorMessage)
+        await router.retryError()
+        XCTAssertEqual(router.editor?.lines.map(\.text), ["Captured"])
+        XCTAssertNil(router.editor?.unsavedTitle)
+    }
     func testOverlappingSelectionPublishesLatestAndBlocksEditingDuringTransition() async throws {
         let base = try await InMemoryPetalRepository.bootstrapped()
         let active = try await base.cards(scope: .active)

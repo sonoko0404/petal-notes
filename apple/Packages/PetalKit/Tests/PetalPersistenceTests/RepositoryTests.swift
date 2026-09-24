@@ -6,6 +6,36 @@ import PetalTestSupport
 
 private let instant = Date(timeIntervalSince1970: 1_800_000_000)
 
+@Test func captureBatchCommitsAllTodosAndOutboxOrNone() async throws {
+    let store = try ModelContainerFactory.makeInMemory()
+    let repository = SwiftDataPetalRepository(container: store)
+    try await repository.bootstrap(now: instant)
+    let inbox = try #require(await repository.cards(scope: .active).first(where: \.isInbox))
+    let before = try await repository.pendingOutboxCount()
+    let failing = SwiftDataPetalRepository(container: store, faultInjector: .failOnceBeforeSave)
+    await #expect(throws: RepositoryError.injectedFailure) {
+        try await failing.captureTodoLines(cardID: inbox.id, texts: ["One", "Two"], now: instant)
+    }
+    #expect(try await repository.lines(cardID: inbox.id).isEmpty)
+    #expect(try await repository.pendingOutboxCount() == before)
+    let created = try await repository.captureTodoLines(cardID: inbox.id, texts: ["One", "Two"], now: instant)
+    #expect(created.map(\.text) == ["One", "Two"])
+    #expect(created.allSatisfy { $0.kind == .todo })
+    #expect(try await repository.pendingOutboxCount() == before + 2)
+}
+
+@Test func captureBatchRejectsArchivedTargetWithoutWritingRowsOrOutbox() async throws {
+    let repository = try await InMemoryPetalRepository.bootstrapped()
+    let target = try await repository.createCard(title: "Target", now: instant)
+    try await repository.moveCard(target.id, to: .archived, replacementInbox: nil, now: instant)
+    let before = try await repository.pendingOutboxCount()
+    await #expect(throws: RepositoryError.cardUnavailable) {
+        try await repository.captureTodoLines(cardID: target.id, texts: ["One", "Two"], now: instant)
+    }
+    #expect(try await repository.lines(cardID: target.id).isEmpty)
+    #expect(try await repository.pendingOutboxCount() == before)
+}
+
 @Test func outboxKeepsCommitOrderWhenWallClockMovesBackwards() async throws {
     let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     _ = try await repository.createCard(title: "Inbox", now: instant)

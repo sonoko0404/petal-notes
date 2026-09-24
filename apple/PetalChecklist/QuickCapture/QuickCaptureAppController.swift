@@ -20,12 +20,14 @@ final class QuickCaptureAppController {
         hotKey = GlobalHotKeyClient(registrar: CarbonHotKeyRegistrar(), defaults: defaults)
     }
 
-    func configure(repository: any PetalRepository) {
+    func configure(repository: any PetalRepository,
+                   onCommitted: @escaping @MainActor (CardID) async -> Void) {
         guard coordinator == nil else { return }
         let capture = QuickCaptureCoordinator(
             repository: repository, panel: panel, foreground: foreground,
             currentPID: ProcessInfo.processInfo.processIdentifier,
-            clock: { ProcessInfo.processInfo.systemUptime }
+            clock: { ProcessInfo.processInfo.systemUptime },
+            onCommitted: onCommitted
         )
         coordinator = capture
         panel.onSubmit = { [weak self] in

@@ -1,11 +1,48 @@
 import AppKit
 import SwiftUI
 
+struct ForegroundApplicationIdentity: Equatable {
+    let pid: pid_t
+    let bundleIdentifier: String?
+    let launchDate: Date
+
+    init(pid: pid_t, bundleIdentifier: String?, launchDate: Date) {
+        self.pid = pid
+        self.bundleIdentifier = bundleIdentifier
+        self.launchDate = launchDate
+    }
+
+    init?(_ application: NSRunningApplication) {
+        guard let launchDate = application.launchDate else { return nil }
+        self.init(pid: application.processIdentifier,
+                  bundleIdentifier: application.bundleIdentifier,
+                  launchDate: launchDate)
+    }
+}
+
 @MainActor
 final class WorkspaceForegroundClient: QuickCaptureForegroundClient {
-    func currentPID() -> pid_t? { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+    private var remembered: [pid_t: ForegroundApplicationIdentity] = [:]
+
+    func currentPID() -> pid_t? {
+        guard let application = NSWorkspace.shared.frontmostApplication else { return nil }
+        if let identity = ForegroundApplicationIdentity(application) {
+            remembered[identity.pid] = identity
+        }
+        return application.processIdentifier
+    }
+
+    static func canRestore(expected: ForegroundApplicationIdentity,
+                           actual: ForegroundApplicationIdentity) -> Bool {
+        expected == actual
+    }
+
     func restore(pid: pid_t) {
-        NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+        guard let expected = remembered.removeValue(forKey: pid),
+              let application = NSRunningApplication(processIdentifier: pid),
+              let actual = ForegroundApplicationIdentity(application),
+              Self.canRestore(expected: expected, actual: actual) else { return }
+        application.activate(options: [])
     }
 }
 

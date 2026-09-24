@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Carbon
 @testable import PetalChecklist
 
 @MainActor
@@ -58,5 +59,30 @@ final class GlobalHotKeyClientTests: XCTestCase {
         let recorded = HotKeyChoice.recorded(keyCode: 40, flags: [.option, .command], characters: "k")
         XCTAssertEqual(recorded, HotKeyChoice(keyCode: 40, modifiers: 0x900, title: "⌥⌘K"))
         XCTAssertNil(HotKeyChoice.recorded(keyCode: 40, flags: [.shift], characters: "k"))
+    }
+
+    func testPersistedOffIgnoresOldLocalizedTitleAndNeverRegisters() throws {
+        let registrar = Registrar()
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(try XCTUnwrap("{\"keyCode\":0,\"modifiers\":0,\"title\":\"Off in another locale\"}".data(using: .utf8)),
+                     forKey: "quickCaptureHotKey")
+        let client = GlobalHotKeyClient(registrar: registrar, defaults: defaults)
+        client.start()
+        XCTAssertEqual(client.selection, .off)
+        XCTAssertTrue(registrar.registrations.isEmpty)
+        XCTAssertEqual(HotKeyChoice(keyCode: 40, modifiers: 0x900, title: "⌥⌘K"),
+                       HotKeyChoice(keyCode: 40, modifiers: 0x900, title: "Old label"))
+    }
+
+    func testCarbonHandlerIgnoresUnrelatedHotKeyIdentifiers() {
+        var callbacks = 0
+        let wrongSignature = EventHotKeyID(signature: 0x12345678, id: 1)
+        let wrongID = EventHotKeyID(signature: 0x5054414C, id: 9)
+        let matching = EventHotKeyID(signature: 0x5054414C, id: 1)
+        XCTAssertEqual(CarbonHotKeyRegistrar.dispatch(wrongSignature) { callbacks += 1 }, OSStatus(eventNotHandledErr))
+        XCTAssertEqual(CarbonHotKeyRegistrar.dispatch(wrongID) { callbacks += 1 }, OSStatus(eventNotHandledErr))
+        XCTAssertEqual(callbacks, 0)
+        XCTAssertEqual(CarbonHotKeyRegistrar.dispatch(matching) { callbacks += 1 }, noErr)
+        XCTAssertEqual(callbacks, 1)
     }
 }

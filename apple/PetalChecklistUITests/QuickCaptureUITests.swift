@@ -14,10 +14,16 @@ final class QuickCaptureUITests: XCTestCase {
         editor.typeText("Call mom")
         XCTAssertEqual(editor.value as? String, "Buy tea\nCall mom")
         editor.typeKey(.return, modifierFlags: [])
-        XCTAssertFalse(editor.waitForExistence(timeout: 1))
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: editor)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 5), .completed)
         app.buttons["scope.inbox"].click()
-        XCTAssertTrue(app.staticTexts["Buy tea"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Call mom"].exists)
+        let inbox = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'card.select.'")).firstMatch
+        XCTAssertTrue(inbox.waitForExistence(timeout: 5))
+        inbox.click()
+        let fields = app.textFields.matching(NSPredicate(format: "identifier BEGINSWITH 'line.text.'"))
+        XCTAssertTrue(fields.element(boundBy: 1).waitForExistence(timeout: 5))
+        XCTAssertEqual(fields.element(boundBy: 0).value as? String, "Buy tea")
+        XCTAssertEqual(fields.element(boundBy: 1).value as? String, "Call mom")
     }
 
     func testHotKeyInvocationFocusLatencyIsRecorded() {
@@ -25,13 +31,17 @@ final class QuickCaptureUITests: XCTestCase {
         app.launchArguments = ["-ui-testing", "-ui-enable-hotkey"]
         app.launch()
         XCTAssertTrue(app.buttons["scope.inbox"].waitForExistence(timeout: 5))
-        let invocation = ProcessInfo.processInfo.systemUptime
         app.typeKey("n", modifierFlags: [.option, .command])
         let editor = app.textViews["quickCapture.text"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         editor.typeText("a")
         XCTAssertEqual(editor.value as? String, "a")
-        let observed = ProcessInfo.processInfo.systemUptime - invocation
-        print("Quick capture hotkey to focused editor, including XCTest automation: \(observed) seconds")
+        let measurement = app.staticTexts["quickCapture.focusLatencyMs"]
+        XCTAssertTrue(measurement.waitForExistence(timeout: 5))
+        guard let milliseconds = Double(measurement.label) else {
+            XCTFail("Focus measurement must be numeric")
+            return
+        }
+        XCTAssertLessThanOrEqual(milliseconds, 300, "Production hotkey-to-first-responder measurement exceeded 300 ms")
     }
 }
