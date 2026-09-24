@@ -40,10 +40,12 @@ public enum CloudRecordMapper {
         case .userState(let value): ("PTUserState", userStateID, value.modifiedAt ?? record.generation.modifiedAt,
             value.revision ?? 1, value.deviceID ?? record.generation.deviceID)
         case .tombstone(let v): (v.entity == .card ? "PTCard" : "PTLine", v.entityID, v.deletedAt, v.revision, v.deviceID)
+        case .invalidInbound(let v): ("InvalidInbound", v.entityID, .distantPast, 1, "")
         }
     }
 
     public static func encode(_ value: ReplicatedRecord) throws -> CKRecord {
+        if case .invalidInbound = value.payload { throw CloudTransportError.invalidRecord }
         let identity = identity(value)
         let record = CKRecord(recordType: identity.type, recordID: CKRecord.ID(recordName: identity.id.uuidString, zoneID: zoneID))
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
@@ -77,6 +79,7 @@ public enum CloudRecordMapper {
         guard record.recordID.zoneID == zoneID,
               record["schemaVersion"] as? Int64 == 1, record["reminderVersion"] as? Int64 == 1,
               let payload = record["payload"] as? Data,
+              payload.count <= 1_048_576,
               let generation = record["resetGeneration"] as? String, let id = UUID(uuidString: generation),
               let date = record["resetModifiedAt"] as? Date, let device = record["resetDeviceID"] as? String else {
             throw CloudTransportError.invalidRecord
@@ -89,6 +92,7 @@ public enum CloudRecordMapper {
                 generation: ResetGeneration(id: id, modifiedAt: date, deviceID: device,
                     isReplacement: record["resetIsReplacement"] as? Int64 == 1),
                 replacementInboxID: expected.flatMap(UUID.init(uuidString:)))
+            if case .invalidInbound = value.payload { throw CloudTransportError.invalidRecord }
             var identity = identity(value)
             if case .tombstone(let tombstone) = value.payload, record.recordType == "PTTombstone" {
                 // Legacy fences remain mergeable; new fences live at the entity
@@ -104,7 +108,6 @@ public enum CloudRecordMapper {
             guard record.recordType == identity.type, record.recordID.recordName == identity.id.uuidString,
                   record["modifiedAt"] as? Date == identity.modifiedAt, record["revision"] as? Int64 == identity.revision,
                   record["deviceID"] as? String == identity.deviceID else { throw CloudTransportError.invalidRecord }
-            if case .line(let line) = value.payload { try line.reminder?.validate() }
             return value
         } catch { throw CloudTransportError.invalidRecord }
     }

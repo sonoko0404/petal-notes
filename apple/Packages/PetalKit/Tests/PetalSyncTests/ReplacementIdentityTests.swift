@@ -55,8 +55,8 @@ func replacementStagesUnavailableInitialInboxWithoutDiscardingUnrelatedRecords(k
     let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     try await repository.applyInbound([marker], token: Data([1]), now: identityNow)
     var invalid = expected
-    if kind == "archived" { invalid.status = .archived; invalid.archivedAt = identityNow }
-    if kind == "trashed" { invalid.status = .trashed; invalid.deletedAt = identityNow }
+    if kind == "archived" { invalid.status = .archived; invalid.archivedAt = identityNow; invalid.isInbox = false }
+    if kind == "trashed" { invalid.status = .trashed; invalid.deletedAt = identityNow; invalid.isInbox = false }
     if kind == "unflagged" { invalid.isInbox = false }
     if kind == "malformed" { invalid.deletedAt = identityNow }
     let payload: ReplicatedRecord.Payload = kind == "redacted" ? .tombstone(SyncTombstone(id: UUID(), entity: .card,
@@ -69,6 +69,13 @@ func replacementStagesUnavailableInitialInboxWithoutDiscardingUnrelatedRecords(k
     try await repository.applyInbound([incoming, ReplicatedRecord(payload: .card(other), generation: generation)], token: Data([2]), now: identityNow)
     #expect(try await repository.card(id: other.id)?.title == "Unrelated content")
     #expect(try await repository.syncSnapshot().token == Data([2]))
+    if kind == "malformed" {
+        #expect(try await repository.card(id: expected.id) == nil)
+        #expect(try await repository.conflicts().count == 1)
+    } else if kind != "redacted" {
+        #expect(try await repository.card(id: expected.id)?.status == invalid.status)
+    }
+    try await repository.transferSnapshot().validate()
     #expect(try await repository.syncSnapshot().replacementDeliveryStatus == .awaitingValidInitialInbox)
     #expect(try await repository.cards(scope: .active).filter(\.isInbox).count == 1)
     let current = UserStateChange(resetGeneration: generation.id, inboxCardID: other.id, replacementMode: false,

@@ -1,4 +1,5 @@
 import CloudKit
+import CryptoKit
 import Foundation
 import PetalPersistence
 
@@ -41,7 +42,15 @@ struct EngineEventBuffer: Sendable {
     }
     mutating func receive(_ records: [CKRecord]) throws {
         for record in records {
-            inbound.append(try CloudRecordMapper.decode(record))
+            do { inbound.append(try CloudRecordMapper.decode(record)) }
+            catch {
+                // Do not persist arbitrary failed JSON or identifiers. A stable
+                // digest deduplicates the bounded, local-only diagnostic.
+                let digest = SHA256.hash(data: Data(record.recordID.recordName.utf8)).map { String(format: "%02x", $0) }.joined()
+                let invalid = InvalidInboundRecord(entityID: UUID(uuidString: record.recordID.recordName) ?? ResetGeneration.initial.id,
+                    recordNameDigest: digest)
+                inbound.append(ReplicatedRecord(payload: .invalidInbound(invalid), generation: .initial))
+            }
             absentRecordNames.remove(record.recordID.recordName)
             retainSystemFields(record)
         }

@@ -27,12 +27,24 @@ public struct ResetGeneration: Codable, Sendable, Equatable, Comparable {
 }
 
 public struct ReplicatedRecord: Codable, Sendable, Equatable {
-    public enum Payload: Codable, Sendable, Equatable { case card(Card), line(CardLine), tombstone(SyncTombstone), userState(UserStateChange) }
+    public enum Payload: Codable, Sendable, Equatable {
+        case card(Card), line(CardLine), tombstone(SyncTombstone), userState(UserStateChange)
+        /// Local-only transport diagnostic. Never accepted from or encoded to CloudKit.
+        case invalidInbound(InvalidInboundRecord)
+    }
     public let payload: Payload
     public let generation: ResetGeneration
     public let replacementInboxID: UUID?
     public init(payload: Payload, generation: ResetGeneration, replacementInboxID: UUID? = nil) {
         self.payload = payload; self.generation = generation; self.replacementInboxID = replacementInboxID
+    }
+}
+
+public struct InvalidInboundRecord: Codable, Sendable, Equatable {
+    public let entityID: UUID
+    public let recordNameDigest: String
+    public init(entityID: UUID, recordNameDigest: String) {
+        self.entityID = entityID; self.recordNameDigest = recordNameDigest
     }
 }
 

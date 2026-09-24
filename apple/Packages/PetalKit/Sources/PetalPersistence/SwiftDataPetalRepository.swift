@@ -297,10 +297,39 @@ private actor RepositoryStore {
         try transaction(notify: false) {
             var metadata = try syncMetadata()
             try validateSyncEpoch(expectedEpoch, metadata)
-            let received = (metadata.unresolvedLines ?? []) + records
+            var invalid: [(ReplicatedRecord.Payload, StructuralIssue)] = []
+            let received = ((metadata.unresolvedLines ?? []) + records).filter { record in
+                do {
+                    try DomainStructure.validateDates([record.generation.modifiedAt])
+                    switch record.payload {
+                    case .card(let card): try DomainStructure.validate(card)
+                    case .line(let line): try DomainStructure.validate(line)
+                    case .invalidInbound: throw StructuralIssue.undecodableRecord
+                    case .tombstone(let value): try DomainStructure.validateDates([value.deletedAt])
+                    case .userState(let value): try DomainStructure.validateDates([value.modifiedAt])
+                    }
+                } catch {
+                    invalid.append((record.payload, (error as? StructuralIssue) ?? .undecodableRecord))
+                    return false
+                }
+                return true
+            }
             if let latest = received.map(\.generation).max(), latest > metadata.generation {
                 try resetContents(generation: latest, now: now)
                 metadata = try syncMetadata()
+            }
+            for (payload, reason) in invalid {
+                switch payload {
+                case .card(let card): try quarantine(card, cardID: card.id, lineID: nil, reason: reason, now: now)
+                case .line(let line): try quarantine(line, cardID: line.cardID, lineID: line.id, reason: reason, now: now)
+                case .invalidInbound(let metadata):
+                    try quarantine(metadata, cardID: CardID(rawValue: metadata.entityID), lineID: nil, reason: reason, now: now)
+                case .tombstone(let value):
+                    try quarantine(value, cardID: CardID(rawValue: value.entityID),
+                        lineID: value.entity == .line ? LineID(rawValue: value.entityID) : nil, reason: reason, now: now)
+                case .userState(let value):
+                    try quarantine(value, cardID: value.inboxCardID, lineID: nil, reason: reason, now: now)
+                }
             }
             // A reset also cleans up stale records first discovered after the
             // local reset. The cleanup survives another offline failure.
@@ -320,7 +349,7 @@ private actor RepositoryStore {
             }
             let records = received.filter { $0.generation == metadata.generation }.sorted {
                 func rank(_ value: ReplicatedRecord) -> Int {
-                    switch value.payload { case .userState: 0; case .tombstone: 1; case .card: 2; case .line: 3 }
+                    switch value.payload { case .userState: 0; case .tombstone: 1; case .card: 2; case .line: 3; case .invalidInbound: 4 }
                 }
                 return rank($0) < rank($1)
             }
@@ -389,6 +418,12 @@ private actor RepositoryStore {
                         metadata.replacementInitialInboxIDs = candidates
                     }
                 case .line(let line):
+                    let existing = try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).first { $0.id == line.id.rawValue }
+                    do { try DomainStructure.validate(line, existingCardID: existing?.value().cardID) }
+                    catch {
+                        try quarantine(line, cardID: line.cardID, lineID: line.id, reason: .lineParent, now: now)
+                        continue
+                    }
                     if metadata.tombstones.contains(where: {
                         ($0.entity == .line && $0.entityID == line.id.rawValue || $0.entity == .card && $0.entityID == line.cardID.rawValue)
                             && $0.prevents(modifiedAt: line.modifiedAt, deviceID: line.deviceID, now: now)
@@ -411,7 +446,7 @@ private actor RepositoryStore {
                         context.insert(try PetalSchemaV1.StoredLine(line))
                         try discardSupersededDeletion(entity: .line, id: line.id.rawValue)
                     }
-                case .tombstone, .userState: break
+                case .tombstone, .userState, .invalidInbound: break
                 }
             }
             metadata.unresolvedLines = unresolved.values.sorted {
@@ -439,8 +474,12 @@ private actor RepositoryStore {
         let valid = expected.map { $0.status == .active && $0.deletedAt == nil && $0.archivedAt == nil
             && (!initial || $0.isInbox || metadata.replacementInitialInboxIDs?.contains($0.id.rawValue) == true) } ?? false
         guard valid, let target = expected else {
+            let quarantinedExpected = try conflicts().contains {
+                $0.cardID.rawValue == metadata.replacementExpectedInboxID && $0.inboundIssue != nil && $0.expiresAt > now
+            }
             if metadata.replacementExpectedInboxID == nil { metadata.replacementDeliveryStatus = .awaitingDeclaration }
-            else if initial && (expected != nil || metadata.tombstones.contains { $0.entity == .card && $0.entityID == metadata.replacementExpectedInboxID }) {
+            else if initial && (expected != nil || metadata.tombstones.contains { $0.entity == .card && $0.entityID == metadata.replacementExpectedInboxID }
+                || quarantinedExpected) {
                 metadata.replacementDeliveryStatus = .awaitingValidInitialInbox
             } else { metadata.replacementDeliveryStatus = .awaitingInbox }
             if !all.contains(where: { $0.status == .active && $0.archivedAt == nil && $0.deletedAt == nil }) {
@@ -524,6 +563,19 @@ private actor RepositoryStore {
         for row in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredOutboxChange>()) where try removed.contains(row.value().entityID) {
             context.delete(row)
         }
+    }
+
+    private func quarantine<T: Encodable>(_ value: T, cardID: CardID, lineID: LineID?, reason: StructuralIssue, now: Date) throws {
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        let encoded = try? encoder.encode(value)
+        // Preserve safely decoded user-visible content only within a fixed
+        // budget. Otherwise identity + reason on the artifact are sufficient.
+        let payload = encoded.flatMap { $0.count <= 65_536 ? $0 : nil } ?? Data()
+        guard try !conflicts().contains(where: { $0.cardID == cardID && $0.lineID == lineID
+            && $0.inboundIssue == reason && $0.losingPayload == payload && $0.expiresAt > now }) else { return }
+        context.insert(try PetalSchemaV1.StoredConflictArtifact(ConflictArtifact(id: UUID(), cardID: cardID,
+            lineID: lineID, losingPayload: payload, capturedAt: now, expiresAt: now.addingTimeInterval(2_592_000),
+            hasBeenPresented: false, inboundIssue: reason)))
     }
 
     private func mergeDecision<T: Encodable & Equatable>(entity: OutboxChange.Entity, id: UUID,

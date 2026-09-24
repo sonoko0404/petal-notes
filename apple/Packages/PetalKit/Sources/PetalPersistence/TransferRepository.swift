@@ -9,18 +9,11 @@ public struct TransferSnapshot: Sendable, Equatable {
         let ids = Set(cards.map(\.id))
         guard ids.count == cards.count, Set(lines.map(\.id)).count == lines.count,
               cards.filter(\.isInbox).count <= 1,
-              cards.allSatisfy({ !$0.isInbox || $0.status == .active }),
-              cards.allSatisfy({ ($0.status == .trashed) == ($0.deletedAt != nil) }),
-              lines.allSatisfy({ ids.contains($0.cardID) && $0.dailyStreak >= 0
-                && ($0.kind == .todo || (!$0.isCompleted && $0.reminder == nil)) }) else {
+              lines.allSatisfy({ ids.contains($0.cardID) }) else {
             throw TransferRepositoryError.invalidSnapshot
         }
-        for line in lines {
-            try line.reminder?.validate()
-            if case .daily(_, let zone) = line.reminder?.rule, TimeZone(identifier: zone) == nil {
-                throw TransferRepositoryError.invalidSnapshot
-            }
-        }
+        for card in cards { try DomainStructure.validate(card) }
+        for line in lines { try DomainStructure.validate(line) }
     }
 }
 
