@@ -274,6 +274,7 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task {
+                await router?.syncDidCommit()
                 router?.refreshTemporalState()
                 WidgetCenter.shared.reloadAllTimelines()
                 await reminders?.reconcile(.foreground)

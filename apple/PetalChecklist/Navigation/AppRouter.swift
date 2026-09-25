@@ -25,6 +25,7 @@ final class AppRouter {
     @ObservationIgnored private var pendingTransitions = 0
     @ObservationIgnored private var closing = false
     @ObservationIgnored private var closeDrain: Task<Bool, Never>?
+    @ObservationIgnored private var pendingStoreRefresh = false
     @ObservationIgnored private var retryAction: (@MainActor () async -> Void)?
 
     init(repository: any PetalRepository, library: CardLibraryModel, reminders: ReminderCoordinator? = nil) {
@@ -195,7 +196,17 @@ final class AppRouter {
     }
 
     func syncDidCommit() async {
+        pendingStoreRefresh = true
+        await drainPendingStoreRefresh()
+    }
+
+    private func drainPendingStoreRefresh() async {
+        guard pendingStoreRefresh, !closing else { return }
+        var entered = false
+        var refreshed = false
         await transition({ [self] _ in
+            entered = true
+            pendingStoreRefresh = false
             try await flushEditor()
             if let id = selectedCardID {
                 if try await repository.card(id: id) == nil {
@@ -204,7 +215,9 @@ final class AppRouter {
                 } else { try await editor?.load() }
             }
             try await library.refresh()
+            refreshed = true
         }, retry: { [weak self] in await self?.syncDidCommit() }, supersedesUserIntent: false)
+        if entered && !refreshed { pendingStoreRefresh = true }
     }
 
     func refreshTemporalState() {
@@ -251,6 +264,9 @@ final class AppRouter {
         isTransitioning = pendingTransitions > 0
         if !isTransitioning {
             for model in editors.values { model.setTransitionLocked(false) }
+        }
+        if pendingStoreRefresh {
+            Task { @MainActor [weak self] in await self?.drainPendingStoreRefresh() }
         }
     }
 }

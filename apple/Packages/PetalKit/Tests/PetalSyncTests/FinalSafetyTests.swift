@@ -183,6 +183,67 @@ private actor ErasureService: CloudTransport {
     #expect(copy.title == restored.title)
 }
 
+@Test(arguments: [false, true])
+func finalRestoreAfterCompletedScanAndFailedSendPreservesErasureAcrossRestart(incoming: Bool) async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    func open() throws -> SwiftDataPetalRepository {
+        SwiftDataPetalRepository(container: try ModelContainerFactory.makeShared(appGroupID: "test", containerURL: { _ in root }))
+    }
+    let repository = try open(), service = ErasureService()
+    let old = try await repository.createCard(title: "A before first restore", now: safetyNow)
+    let line = try await repository.addLine(NewLineDraft(cardID: old.id, kind: .todo, text: "A private row"), now: safetyNow)
+    await CloudSyncCoordinator(repository: repository, transport: service).sync(reason: .launch)
+    try await repository.replaceUserData(TransferSnapshot(cards: [safetyCard()], lines: []), now: safetyNow.addingTimeInterval(1))
+    await CloudSyncCoordinator(repository: repository, transport: service).sync(reason: .userRequested)
+    try await repository.deleteAllData(resetGeneration: UUID(), now: safetyNow.addingTimeInterval(2))
+    await service.setFailure(true)
+    await CloudSyncCoordinator(repository: repository, transport: service).sync(reason: .userRequested)
+    // Fetch completed and persisted its checkpoint, but cloud content has not
+    // been erased. Replacement must not discard the remaining obligation.
+    #expect(try await repository.syncSnapshot().erasureScanGeneration == nil)
+    #expect(try await repository.pendingOutbox().contains { $0.entityID == old.id.rawValue && $0.operation == .delete })
+    let restored = safetyCard()
+    let backup = TransferSnapshot(cards: [restored], lines: [safetyLine(restored)])
+    if incoming {
+        let origin = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+        try await origin.replaceUserData(backup, now: safetyNow.addingTimeInterval(3))
+        try await open().applyInbound(CloudRecordMapper.outbound(origin.syncSnapshot()).map(\.record),
+            token: Data([99]), now: safetyNow.addingTimeInterval(3))
+    } else {
+        try await open().replaceUserData(backup, now: safetyNow.addingTimeInterval(3))
+    }
+    let reopened = try open()
+    let pending = try await reopened.syncSnapshot()
+    #expect(pending.erasureScanGeneration != nil || pending.changes.contains {
+        $0.entityID == old.id.rawValue && $0.operation == .delete
+    })
+    await service.setFailure(false)
+    await CloudSyncCoordinator(repository: reopened, transport: service).sync(reason: .retry)
+    guard case .tombstone = await service.payload(old.id.rawValue),
+          case .tombstone = await service.payload(line.id.rawValue) else {
+        Issue.record("Completed scan plus failed send plus restore forgot cloud payload A"); return
+    }
+    #expect(try await reopened.card(id: restored.id)?.title == restored.title)
+    #expect(try await reopened.lines(cardID: restored.id).count == 1)
+    #expect(try await reopened.syncSnapshot().erasureScanGeneration == nil)
+}
+
+@Test func finalStaleScanCompletionCannotClearReplacementRescanObligation() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    try await repository.deleteAllData(resetGeneration: UUID(), now: safetyNow)
+    let scanning = try #require(await repository.syncSnapshot().erasureScanGeneration)
+    let old = safetyCard()
+    try await repository.applyInbound([ReplicatedRecord(payload: .card(old), generation: .initial)],
+        token: Data([42]), now: safetyNow)
+    try await repository.replaceUserData(TransferSnapshot(cards: [safetyCard()], lines: []),
+        now: safetyNow.addingTimeInterval(1))
+    // Models a replacement committed between an in-flight scan's inbound
+    // transaction and its subsequent finish callback.
+    try await repository.finishErasureScan(generation: scanning, token: Data([42]), expectedEpoch: nil)
+    #expect(try await repository.syncSnapshot().erasureScanGeneration != nil)
+}
+
 @Test func finalErasureCannotFenceANewerReplacementDeliveredWithStaleHistory() async throws {
     let sender = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
     let receiver = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())

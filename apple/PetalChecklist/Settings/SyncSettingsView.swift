@@ -93,7 +93,7 @@ final class SyncSettingsModel {
         do {
             let snapshot = try await repository.syncSnapshot()
             enabled = snapshot.enabled; state = snapshot.state
-            try await refreshConflicts(now: now, replacingNoticeCount: true)
+            try await presentConflicts(now: now)
             operationFailed = false
         } catch { operationFailed = true }
     }
@@ -107,7 +107,7 @@ final class SyncSettingsModel {
             try await coordinator.setEnabled(value)
             let snapshot = try await repository.syncSnapshot()
             enabled = snapshot.enabled; state = snapshot.state
-            try await refreshConflicts(now: .now, replacingNoticeCount: false)
+            try await refreshConflictArtifacts(now: .now)
             operationFailed = false
         } catch { operationFailed = true }
     }
@@ -117,25 +117,26 @@ final class SyncSettingsModel {
         do {
             let snapshot = try await repository.syncSnapshot()
             enabled = snapshot.enabled; state = snapshot.state
-            try await refreshConflicts(now: .now, replacingNoticeCount: false)
+            try await refreshConflictArtifacts(now: .now)
             operationFailed = false
         } catch { operationFailed = true }
     }
     func requestReset() { isResetRequested = true }
     func dismissConflictNotice() { unpresentedConflictCount = 0 }
-    private func refreshConflicts(now: Date, replacingNoticeCount: Bool) async throws {
+    private func presentConflicts(now: Date) async throws {
         let newlyUnpresented = try await repository.takeUnpresentedConflicts(now: now).count
-        unpresentedConflictCount = replacingNoticeCount
-            ? newlyUnpresented
-            : unpresentedConflictCount + newlyUnpresented
+        unpresentedConflictCount += newlyUnpresented
+        try await refreshConflictArtifacts(now: now)
+        unpresentedConflictCount = min(unpresentedConflictCount, conflicts.count)
+    }
+    private func refreshConflictArtifacts(now: Date) async throws {
         let allConflicts = try await repository.conflicts()
         conflicts = allConflicts.filter { $0.expiresAt > now }
     }
     func recover(_ id: UUID, now: Date = .now) async -> CardID? {
         do {
             let cardID = try await repository.recoverConflict(id: id, now: now)
-            let allConflicts = try await repository.conflicts()
-            conflicts = allConflicts.filter { $0.expiresAt > now }
+            try await refreshConflictArtifacts(now: now)
             operationFailed = false
             return cardID
         } catch {

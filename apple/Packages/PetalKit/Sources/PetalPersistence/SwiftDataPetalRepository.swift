@@ -317,7 +317,8 @@ private actor RepositoryStore {
             try validateSyncEpoch(expectedEpoch, metadata)
             guard metadata.erasureScanGeneration == generation else { return }
             // All discovered redactions already share the committed inbound
-            // transaction. A send failure or crash retains their journal work.
+            // transaction. A send failure or crash retains their journal work;
+            // replacement must re-arm this scan before discarding that work.
             metadata.erasureScanGeneration = nil
             metadata.token = token
             try syncMetadataRow().payload = JSONEncoder().encode(metadata)
@@ -1180,6 +1181,9 @@ private actor RepositoryStore {
             // failed transaction may discard cached display, never canonical data.
             try coordinator.installWidgetResetFence(generation: generation.id)
             resetFenceInstalled = true
+            let discardsPendingRedactions = generation.isReplacement
+                ? try pendingOutbox().contains { $0.operation == .delete && ($0.entity == .card || $0.entity == .line) }
+                : false
             let oldCards = try cards(scope: .all)
             let waitingLines = try (syncMetadata().unresolvedLines ?? []).compactMap { record -> CardLine? in
                 if case .line(let line) = record.payload { return line }; return nil
@@ -1204,9 +1208,12 @@ private actor RepositoryStore {
                 metadata.erasureFence = generation
                 metadata.erasureScanGeneration = generation.id
                 metadata.token = nil
-            } else if metadata.erasureScanGeneration != nil {
-                // A restore before the pending erasure completes must not
-                // discard the obligation to inspect older generations.
+            } else if metadata.erasureScanGeneration != nil || (metadata.erasureFence != nil && discardsPendingRedactions) {
+                // A completed scan is not completed erasure: a failed/partial
+                // send still owns durable redactions. Re-arm a scan atomically
+                // before replacement drops them, retaining erasureFence authority.
+                // This fresh generation also fences a previous scan's finish.
+                metadata.erasureScanGeneration = generation.id
                 metadata.token = nil
             }
             metadata.onboardingCompleted = true

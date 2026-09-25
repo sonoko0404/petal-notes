@@ -305,6 +305,101 @@ final class AppRouterTests: XCTestCase {
         XCTAssertEqual(savedCard?.title, "One drain")
     }
 
+    func testSkippedForeignCommitReplaysAfterCloseWithSyncDisabled() async throws {
+        try await assertSkippedForeignCommitReplaysAfterClose { repository in
+            try await repository.setSyncEnabled(false)
+        }
+    }
+
+    func testSkippedForeignCommitReplaysAfterCloseWithSyncFailed() async throws {
+        try await assertSkippedForeignCommitReplaysAfterClose { repository in
+            try await repository.recordSyncState(.failed(.quotaExceeded), retryAt: nil)
+        }
+    }
+
+    private func assertSkippedForeignCommitReplaysAfterClose(
+        configureSync: (SwiftDataPetalRepository) async throws -> Void
+    ) async throws {
+        let base = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+        try await base.bootstrap(now: .now)
+        let card = try await base.createCard(title: "Before", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(card.id)
+        try await configureSync(base)
+        let closeAllowed = await router.prepareClose()
+        XCTAssertTrue(closeAllowed)
+        _ = try await base.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Foreign"), now: .now)
+
+        await router.syncDidCommit()
+        XCTAssertTrue(router.editor?.lines.isEmpty == true)
+        repository.linesGate.pauseNext()
+        router.closeRequestDidEnd()
+        router.editor?.editTitle("Draft after reopen")
+        await repository.linesGate.waitUntilEntered()
+        repository.linesGate.resume()
+        await router.syncDidCommit()
+
+        XCTAssertEqual(router.editor?.lines.map(\.text), ["Foreign"])
+        XCTAssertNil(router.editor?.unsavedTitle)
+        let savedTitle = try await base.card(id: card.id)?.title
+        XCTAssertEqual(savedTitle, "Draft after reopen")
+    }
+
+    func testSkippedForeignCommitDoesNotRetryFailedCloseOrOverwriteDraft() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Before", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(card.id)
+        router.editor?.editTitle("Keep draft")
+        repository.titleGate.pauseNext()
+        repository.failNextTitle = true
+        let closing = Task { await router.prepareClose() }
+        await repository.titleGate.waitUntilEntered()
+        _ = try await base.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Foreign"), now: .now)
+        await router.syncDidCommit()
+        repository.titleGate.resume()
+
+        let closeAllowed = await closing.value
+        XCTAssertFalse(closeAllowed)
+        XCTAssertEqual(router.editor?.unsavedTitle, "Keep draft")
+        XCTAssertTrue(router.editor?.lines.isEmpty == true)
+        let savedTitle = try await base.card(id: card.id)?.title
+        XCTAssertEqual(savedTitle, "Before")
+    }
+
+    func testForeignCommitQueuedBeforeCloseReplaysWhenItsTransitionWasSkipped() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let first = try await base.createCard(title: "First", now: .now)
+        let second = try await base.createCard(title: "Second", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(first.id)
+        _ = try await base.addLine(NewLineDraft(cardID: first.id, kind: .todo, text: "Foreign"), now: .now)
+        repository.cardGate.pauseNext()
+        let navigation = Task { await router.select(second.id) }
+        await repository.cardGate.waitUntilEntered()
+        let commit = Task { await router.syncDidCommit() }
+        await Task.yield()
+        let closing = Task { await router.prepareClose() }
+        repository.cardGate.resume()
+        await navigation.value
+        let closeAllowed = await closing.value
+        XCTAssertTrue(closeAllowed)
+        XCTAssertTrue(router.editor?.lines.isEmpty == true)
+
+        repository.linesGate.pauseNext()
+        router.closeRequestDidEnd()
+        await repository.linesGate.waitUntilEntered()
+        repository.linesGate.resume()
+        await commit.value
+        await router.syncDidCommit()
+
+        XCTAssertEqual(router.selectedCardID, first.id)
+        XCTAssertEqual(router.editor?.lines.map(\.text), ["Foreign"])
+    }
+
     func testRepositoryCommitRefreshesWidgetChangeAfterSavingDraftAndInvalidatesLocally() async throws {
         let base = try await InMemoryPetalRepository.bootstrapped()
         let card = try await base.createCard(title: "Before", now: .now)
@@ -478,7 +573,7 @@ private actor SettingsCloudTransport: CloudTransport {
         XCTAssertEqual(model.unpresentedConflictCount, 0)
     }
 
-    func testSettingsRefreshesPersistentConflictRecoveryAfterSync() async throws {
+    func testBackgroundSyncDefersConflictNoticeUntilSettingsLoads() async throws {
         let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
         let card = try await repository.createCard(title: "Late conflict", now: .now)
         let sync = CloudSyncCoordinator(repository: repository, transport: SettingsCloudTransport())
@@ -491,6 +586,28 @@ private actor SettingsCloudTransport: CloudTransport {
         await model.sync(.userRequested)
 
         XCTAssertEqual(model.conflicts.count, 1)
+        XCTAssertEqual(model.unpresentedConflictCount, 0)
+        await model.load()
         XCTAssertEqual(model.unpresentedConflictCount, 1)
+        await model.load()
+        XCTAssertEqual(model.unpresentedConflictCount, 1)
+    }
+
+    func testBackgroundSyncPreservesConflictNoticeAcrossRelaunchBeforeSettingsOpens() async throws {
+        let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+        let card = try await repository.createCard(title: "Relaunch conflict", now: .now)
+        let sync = CloudSyncCoordinator(repository: repository, transport: SettingsCloudTransport())
+        let backgroundModel = SyncSettingsModel(repository: repository, coordinator: sync)
+        await backgroundModel.load()
+        _ = try await repository.captureConflict(cardID: card.id, lineID: nil,
+            losingPayload: try JSONEncoder().encode(card), now: .now)
+
+        await backgroundModel.sync(.push)
+        XCTAssertEqual(backgroundModel.unpresentedConflictCount, 0)
+        let relaunched = SyncSettingsModel(repository: repository, coordinator: sync)
+        await relaunched.load()
+
+        XCTAssertEqual(relaunched.conflicts.count, 1)
+        XCTAssertEqual(relaunched.unpresentedConflictCount, 1)
     }
 }
