@@ -1,0 +1,69 @@
+{
+  "inputs": [
+    {"path": "Packages/PetalKit/Sources/PetalCore/WidgetSnapshot.swift", "declaration": "let cardState: WidgetCardState"},
+    {"path": "Packages/PetalKit/Sources/PetalCore/WidgetSnapshot.swift", "declaration": "let syncBadge: WidgetSyncBadge?"},
+    {"path": "PetalWidgets/ChecklistWidgetView.swift", "declaration": "func badgeView(_ badge: WidgetSyncBadge)"},
+    {"path": "PetalChecklist/Settings/SyncSettingsView.swift", "declaration": "var state: SyncState = .offline"}
+  ],
+  "enums": [
+    {"path": "Packages/PetalKit/Sources/PetalCore/WidgetSnapshot.swift", "name": "WidgetCardState", "cases": ["normal", "empty", "archived", "trashed", "unavailable", "persistenceError"]},
+    {"path": "Packages/PetalKit/Sources/PetalCore/WidgetSnapshot.swift", "name": "WidgetSyncBadge", "cases": ["syncing", "offline", "failed"]},
+    {"path": "PetalChecklist/Navigation/AppRouter.swift", "name": "LibraryScope", "cases": ["inbox", "allCards", "archive", "trash", "settings"]},
+    {"path": "Packages/PetalKit/Sources/PetalCore/SyncState.swift", "name": "SyncState", "cases": ["synced", "syncing", "offline", "failed"]},
+    {"path": "Packages/PetalKit/Sources/PetalCore/SyncState.swift", "name": "SyncFailure", "cases": ["authenticationRequired", "networkUnavailable", "quotaExceeded", "other"]}
+  ],
+  "producers": [
+    {
+      "id": "widget-state", "path": "PetalWidgets/ChecklistWidgetView.swift", "name": "stateMessage", "table": "Widgets", "bundle": "PetalWidgets",
+      "declaration": "var stateMessage: LocalizedStringKey",
+      "body": "switch entry.snapshot.cardState { case .normal, .empty: \"ui.no_items_add_some_in_petal.4016bc\" case .archived: \"ui.this_card_is_archived_edit_the_widget_to_choose_another.9bae01\" case .trashed: \"ui.this_card_is_in_trash_restore_it_in_petal_or_edit_the_w.300709\" case .unavailable: \"ui.choose_a_card_by_editing_this_widget.0fbf4c\" case .persistenceError: \"ui.unable_to_read_this_card_open_petal_to_check_your_local.edd35b\" }",
+      "keys": ["ui.no_items_add_some_in_petal.4016bc", "ui.this_card_is_archived_edit_the_widget_to_choose_another.9bae01", "ui.this_card_is_in_trash_restore_it_in_petal_or_edit_the_w.300709", "ui.choose_a_card_by_editing_this_widget.0fbf4c", "ui.unable_to_read_this_card_open_petal_to_check_your_local.edd35b"],
+      "sites": [{"path": "PetalWidgets/ChecklistWidgetView.swift", "callee": "Text", "key": "stateMessage"}]
+    },
+    {
+      "id": "widget-badge", "path": "PetalWidgets/ChecklistWidgetView.swift", "name": "label", "table": "Widgets", "bundle": "PetalWidgets",
+      "declaration": "let label: LocalizedStringKey =", "followingToken": "return",
+      "body": "badge == .syncing ? \"ui.syncing.5c8b9e\" : badge == .offline ? \"ui.offline.a17947\" : \"ui.sync_failed.abf3e8\"",
+      "keys": ["ui.syncing.5c8b9e", "ui.offline.a17947", "ui.sync_failed.abf3e8"],
+      "sites": [{"path": "PetalWidgets/ChecklistWidgetView.swift", "callee": "Text", "key": "label"}]
+    },
+    {
+      "id": "app-scope", "path": "PetalChecklist/CardLibrary/CardLibraryView.swift", "name": "scopeName", "table": "Localizable", "bundle": "PetalChecklist",
+      "declaration": "func scopeName(_ scope: LibraryScope) -> LocalizedStringKey",
+      "body": "switch scope { case .inbox: \"ui.inbox.94835e\" case .allCards: \"ui.all_cards.c98ee6\" case .archive: \"ui.archive.66f480\" case .trash: \"ui.trash.c56012\" case .settings: \"ui.settings.74a883\" }",
+      "keys": ["ui.inbox.94835e", "ui.all_cards.c98ee6", "ui.archive.66f480", "ui.trash.c56012", "ui.settings.74a883"],
+      "sites": [
+        {"path": "PetalChecklist/CardLibrary/CardLibraryView.swift", "callee": "Text", "key": "scopeName(model.scope)"},
+        {"path": "PetalChecklist/CardLibrary/CardLibraryView.swift", "callee": "Text", "key": "scopeName(item.scope)"},
+        {"path": "PetalChecklist/App/RootView.swift", "callee": "Label", "key": "scopeName(scope)"}
+      ]
+    },
+    {
+      "id": "app-sync-status", "path": "PetalChecklist/Settings/SyncSettingsView.swift", "name": "statusKey", "table": "Localizable", "bundle": "PetalChecklist",
+      "declaration": "var statusKey: LocalizedStringKey",
+      "body": "if !enabled { return \"ui.icloud_sync_is_off.ef869d\" } switch state { case .syncing: return \"ui.syncing_with_icloud.c9c05f\" case .synced: return \"ui.synced_with_icloud.c52146\" case .offline: return \"ui.offline_changes_are_saved_locally.f35944\" case .failed(.quotaExceeded): return \"ui.icloud_storage_is_full.c000d8\" case .failed(.authenticationRequired): return \"ui.sign_in_to_icloud_in_system_settings.1fe2fe\" case .failed: return \"ui.unable_to_sync_try_again.33e914\" }",
+      "keys": ["ui.icloud_sync_is_off.ef869d", "ui.syncing_with_icloud.c9c05f", "ui.synced_with_icloud.c52146", "ui.offline_changes_are_saved_locally.f35944", "ui.icloud_storage_is_full.c000d8", "ui.sign_in_to_icloud_in_system_settings.1fe2fe", "ui.unable_to_sync_try_again.33e914"],
+      "sites": [{"path": "PetalChecklist/Settings/SyncSettingsView.swift", "callee": "Text", "key": "model.statusKey"}]
+    },
+    {
+      "id": "widget-completion", "table": "Widgets", "bundle": "PetalWidgets",
+      "keys": ["ui.completed.22a970", "ui.incomplete.75f33c"],
+      "sites": [{"path": "PetalWidgets/ChecklistWidgetView.swift", "callee": "Text", "key": "line.isCompleted ? \"ui.completed.22a970\" : \"ui.incomplete.75f33c\""}]
+    },
+    {
+      "id": "app-reset-action", "table": "Localizable", "bundle": "PetalChecklist",
+      "keys": ["ui.retry.942087", "ui.delete_all_data.96d59c"],
+      "sites": [{"path": "PetalChecklist/Settings/SyncSettingsView.swift", "callee": "Button", "key": "model.failed ? \"ui.retry.942087\" : \"ui.delete_all_data.96d59c\""}]
+    },
+    {
+      "id": "core-forwarder", "table": "Localizable", "bundle": "PetalKit_PetalCore", "helper": "PetalStrings.text",
+      "keys": ["ui.inbox.94835e", "ui.imported_reminder.a34a16", "ui.export_daily", "ui.export_reminder", "ui.export_disabled", "ui.export_snooze"],
+      "sites": [{"path": "Packages/PetalKit/Sources/PetalCore/PetalStrings.swift", "callee": "bundle.localizedString", "key": "key"}]
+    },
+    {
+      "id": "markdown-forwarder", "table": "Localizable", "bundle": "PetalKit_PetalCore", "helper": "localized",
+      "keys": ["ui.export_daily", "ui.export_reminder", "ui.export_disabled", "ui.export_snooze"],
+      "sites": [{"path": "Packages/PetalKit/Sources/PetalImportExport/MarkdownExporter.swift", "callee": "PetalStrings.text", "key": "key"}]
+    }
+  ]
+}

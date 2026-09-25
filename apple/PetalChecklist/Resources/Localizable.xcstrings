@@ -1,0 +1,2301 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "ui.conflict_captured.7e116b": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Captured"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "保存日期"}}}},
+    "ui.conflict_expires.5d12ae": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Expires"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "到期日期"}}}},
+    "ui.open_recovered_copy.604c37": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Open Recovered Copy"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "打开已恢复副本"}}}},
+    "ui.export_diagnostics": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Export Diagnostics"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "导出诊断记录"}}}},
+    "ui.diagnostics_description": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Diagnostics contain only timestamps, error codes, sync state and version numbers. They stay on this Mac. Entries older than seven days are removed on next use. Export only when you choose."}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "诊断记录仅包含时间、错误代码、同步状态和版本号，仅保存在本机。超过七天的记录在下次使用时删除，仅在你选择时导出。"}}}},
+    "ui.diagnostics_export_failed": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Unable to export diagnostics. Choose another location and try again."}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法导出诊断记录。请选择其他位置并重试。"}}}},
+    "ui.markdown_creates_a_new_petal_markdown_export_folder_ins.47f673": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown creates a new Petal Markdown Export folder inside the directory you choose."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown 会在您选择的目录内新建 Petal Markdown Export 文件夹。"
+          }
+        }
+      }
+    },
+    "ui.data_transfer.786b69": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data Transfer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入与导出"
+          }
+        }
+      }
+    },
+    "ui.import_windows_notes.904fb3": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Windows Notes…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入 Windows 便签…"
+          }
+        }
+      }
+    },
+    "ui.export_json_backup.71df65": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export JSON Backup…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出 JSON 备份…"
+          }
+        }
+      }
+    },
+    "ui.replace_from_backup.49de35": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace from Backup…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从备份替换数据…"
+          }
+        }
+      }
+    },
+    "ui.export_markdown_folder.d04c7f": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Markdown Folder…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出 Markdown 文件夹…"
+          }
+        }
+      }
+    },
+    "ui.transferring_data.721cf4": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transferring Data…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在传输数据…"
+          }
+        }
+      }
+    },
+    "ui.transfer_complete.a4a45d": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transfer complete."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数据传输完成。"
+          }
+        }
+      }
+    },
+    "ui.unable_to_transfer_data_check_the_file_and_destination_.631c5f": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to transfer data. Check the file and destination, then retry. Markdown needs a new folder."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法传输数据，请检查文件和目标位置后重试。Markdown 需要一个新文件夹。"
+          }
+        }
+      }
+    },
+    "ui.save_backup_before_import.fa9d80": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Backup Before Import"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入前保存备份"
+          }
+        }
+      }
+    },
+    "ui.daily_reminders_use_this_mac_s_time_zone_at_import_a_js.773c69": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily reminders use this Mac’s time zone at import. A JSON backup is saved before importing."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每日提醒使用导入时此 Mac 的时区。导入前会保存 JSON 备份。"
+          }
+        }
+      }
+    },
+    "ui.imported_reminder.a34a16": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported reminder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入的提醒"
+          }
+        }
+      }
+    },
+    "ui.replace_current_data.7cef1a": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace Current Data?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换当前数据？"
+          }
+        }
+      }
+    },
+    "ui.this_replaces_all_cards_lines_and_reminder_sound_settin.9dd1e0": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This replaces all cards, lines, and reminder sound settings with the backup. Changes sync to iCloud when enabled. Export a backup first if you want to keep the current data."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会用备份替换所有卡片、内容和提醒声音设置。启用 iCloud 时更改会同步。如需保留当前数据，请先导出备份。"
+          }
+        }
+      }
+    },
+    "ui.replace_data.6c8f89": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace Data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换数据"
+          }
+        }
+      }
+    },
+    "ui.icloud_sync.f18c29": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Sync"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 同步"
+          }
+        }
+      }
+    },
+    "ui.icloud_sync_is_off.ef869d": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Sync Is Off"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 同步已关闭"
+          }
+        }
+      }
+    },
+    "ui.syncing_with_icloud.c9c05f": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncing with iCloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在与 iCloud 同步"
+          }
+        }
+      }
+    },
+    "ui.synced_with_icloud.c52146": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synced with iCloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已与 iCloud 同步"
+          }
+        }
+      }
+    },
+    "ui.offline_changes_are_saved_locally.f35944": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline — Changes Are Saved Locally"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线：更改已保存在本机"
+          }
+        }
+      }
+    },
+    "ui.icloud_storage_is_full.c000d8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Storage Is Full"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 储存空间已满"
+          }
+        }
+      }
+    },
+    "ui.sign_in_to_icloud_in_system_settings.1fe2fe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In to iCloud in System Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在系统设置中登录 iCloud"
+          }
+        }
+      }
+    },
+    "ui.unable_to_sync_try_again.33e914": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to Sync. Try Again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法同步，请重试。"
+          }
+        }
+      }
+    },
+    "ui.sync_now.b5060f": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync Now"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即同步"
+          }
+        }
+      }
+    },
+    "ui.conflict_copy_explanation.0d9410": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Conflict copies stay only on this Mac for 30 days. Recover a copy to include it in future exports; you can also select and copy the text below." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "冲突副本仅在此 Mac 保留 30 天。恢复副本后可将其纳入后续导出；也可以选择并复制下方文字。" } }
+      }
+    },
+    "ui.conflicting_edits_were_saved_for_30_days.801609": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conflicting edits were saved for 30 days."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "冲突编辑已保存，将保留 30 天。"
+          }
+        }
+      }
+    },
+    "ui.dismiss_conflict_notice.90003b": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss Conflict Notice"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭冲突提示"
+          }
+        }
+      }
+    },
+    "ui.recover_copy.5f2a11": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Recover as New Card" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "恢复为新卡片" } }
+      }
+    },
+    "ui.recoverable_conflict_copies.4f113d": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Recoverable Conflict Copies" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "可恢复的冲突副本" } }
+      }
+    },
+    "ui.recovered_copy_ready.8b1d02": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Recovered as a new card" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已恢复为新卡片" } }
+      }
+    },
+    "ui.delete_row.41b5e8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Row"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除此行"
+          }
+        }
+      }
+    },
+    "ui.delete_all_data.b963c2": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete All Data…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除全部数据…"
+          }
+        }
+      }
+    },
+    "ui.delete_all_data.96d59c": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete All Data"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除全部数据"
+          }
+        }
+      }
+    },
+    "ui.deleting_all_data_creates_an_empty_inbox_on_your_device.049439": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting all data creates an empty Inbox on your devices. Cloud changes finish when iCloud is available."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除全部数据后，各设备将创建一个空收集箱。iCloud 可用时会完成云端更改。"
+          }
+        }
+      }
+    },
+    "ui.a_conflicting_edit_was_preserved.6c3ef7": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conflicting edit was preserved."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保留一份冲突编辑。"
+          }
+        }
+      }
+    },
+    "ui.completing_early_may_still_allow_today_s_reminder_futur.3aa89b": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completing early may still allow today's reminder. Future daily reminders continue."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提前完成后，当天仍可能收到一次提醒。以后的每日提醒会继续。"
+          }
+        }
+      }
+    },
+    "ui.open_notification_settings.7fd93e": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Notification Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开通知设置"
+          }
+        }
+      }
+    },
+    "ui.unable_to_open_system_settings_open_notifications_in_sy.b7638d": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to open System Settings. Open Notifications in System Settings manually."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开系统设置，请手动进入系统设置中的“通知”。"
+          }
+        }
+      }
+    },
+    "ui.reminder.31757b": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒"
+          }
+        }
+      }
+    },
+    "ui.enable_reminder.1be5b1": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Reminder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用提醒"
+          }
+        }
+      }
+    },
+    "ui.repeat_daily.fa53cc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repeat Daily"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天重复"
+          }
+        }
+      }
+    },
+    "ui.reminder_time.80381e": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder Time"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒时间"
+          }
+        }
+      }
+    },
+    "ui.unable_to_save_reminder_your_input_is_kept.45d119": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to save reminder. Your input is kept."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存提醒，输入已保留。"
+          }
+        }
+      }
+    },
+    "ui.reminder_saved_notifications_are_disabled_in_system_set.b45158": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder saved. Notifications are disabled in System Settings."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒已保存。请在系统设置中启用通知。"
+          }
+        }
+      }
+    },
+    "ui.reminder_saved_notification_permission_is_needed.689dd2": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder saved. Notification permission is needed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒已保存，需要通知权限。"
+          }
+        }
+      }
+    },
+    "ui.reminder_saved_scheduling_failed_save_again_to_retry.a3cbad": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder saved. Scheduling failed. Save again to retry."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒已保存，但调度失败。请再次保存以重试。"
+          }
+        }
+      }
+    },
+    "ui.reminder_saved.6d29b5": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder saved."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒已保存。"
+          }
+        }
+      }
+    },
+    "ui.close.7d9eb7": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        }
+      }
+    },
+    "ui.remove_reminder.0fb9ab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Reminder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除提醒"
+          }
+        }
+      }
+    },
+    "ui.save_reminder.88f5cf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Reminder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存提醒"
+          }
+        }
+      }
+    },
+    "ui.notification_sound.4478aa": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Sound"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知声音"
+          }
+        }
+      }
+    },
+    "ui.reminder_scheduling_failed_open_the_reminder_and_save_a.cb2cc5": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder scheduling failed. Open the reminder and save again to retry."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒调度失败。请打开提醒并再次保存以重试。"
+          }
+        }
+      }
+    },
+    "ui.this_petal_link_is_invalid.9ee568": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Petal link is invalid."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此花瓣清单链接无效。"
+          }
+        }
+      }
+    },
+    "ui.this_card_is_unavailable_choose_a_card_in_petal.320ac9": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This card is unavailable. Choose a card in Petal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此卡片不可用。请在花瓣清单中选择卡片。"
+          }
+        }
+      }
+    },
+    "ui.unable_to_open_this_card_your_draft_has_been_kept_pleas.6a8ec4": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to open this card. Your draft has been kept. Please try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开此卡片。草稿已保留，请重试。"
+          }
+        }
+      }
+    },
+    "ui.finish_or_cancel_the_current_quick_add_before_opening_a.78682c": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish or cancel the current quick add before opening another card."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请完成或取消当前快速新增，再打开其他卡片。"
+          }
+        }
+      }
+    },
+    "ui.add.9fd728": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加"
+          }
+        }
+      }
+    },
+    "ui.add_todo.b8c6b9": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Todo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增待办"
+          }
+        }
+      }
+    },
+    "ui.all_cards.c98ee6": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Cards"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有卡片"
+          }
+        }
+      }
+    },
+    "ui.archive.66f480": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "归档"
+          }
+        }
+      }
+    },
+    "ui.card_title.03449f": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Card title"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片标题"
+          }
+        }
+      }
+    },
+    "ui.cancel.19766e": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        }
+      }
+    },
+    "ui.cancel_recording.36bf97": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Recording"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消录制"
+          }
+        }
+      }
+    },
+    "ui.complete_todo.70bfc6": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete Todo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成待办"
+          }
+        }
+      }
+    },
+    "ui.convert_to_text.90a386": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convert to Text"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转换为文字"
+          }
+        }
+      }
+    },
+    "ui.convert_to_todo.50fc20": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convert to Todo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转换为待办"
+          }
+        }
+      }
+    },
+    "ui.choose_new_inbox.bba42b": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose New Inbox"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择新的收集箱"
+          }
+        }
+      }
+    },
+    "ui.inbox.94835e": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inbox"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收集箱"
+          }
+        }
+      }
+    },
+    "ui.in_trash.5693d1": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于回收站"
+          }
+        }
+      }
+    },
+    "ui.line_actions.336265": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Line Actions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行操作"
+          }
+        }
+      }
+    },
+    "ui.local_cards_are_available_offline.f1e926": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local cards are available offline."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地卡片可离线使用。"
+          }
+        }
+      }
+    },
+    "ui.mark_incomplete.331426": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark Incomplete"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标记为未完成"
+          }
+        }
+      }
+    },
+    "ui.move_down.b58330": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Down"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下移"
+          }
+        }
+      }
+    },
+    "ui.move_up.135962": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Up"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上移"
+          }
+        }
+      }
+    },
+    "ui.new_card.df1e64": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Card"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建卡片"
+          }
+        }
+      }
+    },
+    "ui.new_todo.1ec858": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New todo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新待办"
+          }
+        }
+      }
+    },
+    "ui.off.ca7981": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        }
+      }
+    },
+    "ui.opening_cards.33b61d": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening Cards"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在打开卡片"
+          }
+        }
+      }
+    },
+    "ui.petal_checklist.d92314": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petal Checklist"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "花瓣清单"
+          }
+        }
+      }
+    },
+    "ui.press_a_shortcut_with_command_option_or_control.3121f1": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press a shortcut with Command, Option, or Control"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请按下包含 Command、Option 或 Control 的快捷键"
+          }
+        }
+      }
+    },
+    "ui.quick_capture.3fb707": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Capture"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速新增"
+          }
+        }
+      }
+    },
+    "ui.quick_capture_shortcut.6aa8d7": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Capture Shortcut"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速新增快捷键"
+          }
+        }
+      }
+    },
+    "ui.record_shortcut.29eed5": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record Shortcut"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "录制快捷键"
+          }
+        }
+      }
+    },
+    "ui.restore.a76e13": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复"
+          }
+        }
+      }
+    },
+    "ui.retry.942087": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        }
+      }
+    },
+    "ui.save_failed %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save failed: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存失败：%@"
+          }
+        }
+      }
+    },
+    "ui.search.49c266": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索"
+          }
+        }
+      }
+    },
+    "ui.select_a_card.e35278": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a Card"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择卡片"
+          }
+        }
+      }
+    },
+    "ui.settings.74a883": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置"
+          }
+        }
+      }
+    },
+    "ui.shift_return_for_a_new_line.813ed5": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift+Return for a new line"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift+Return 换行"
+          }
+        }
+      }
+    },
+    "ui.the_selected_card_is_unavailable_press_add_again_to_sav.2c78c8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected card is unavailable. Press Add again to save to Inbox."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选卡片不可用。再次点按添加可保存到收集箱。"
+          }
+        }
+      }
+    },
+    "ui.this_shortcut_is_unavailable_choose_another_shortcut_or.d06949": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This shortcut is unavailable. Choose another shortcut or turn it off."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此快捷键不可用。请选择其他快捷键或关闭快捷键。"
+          }
+        }
+      }
+    },
+    "ui.inbox_is_unavailable_your_draft_has_been_kept.81cef6": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inbox is unavailable. Your draft has been kept."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收集箱不可用。草稿已保留。"
+          }
+        }
+      }
+    },
+    "ui.text.71988c": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字"
+          }
+        }
+      }
+    },
+    "ui.todo.4ff402": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待办"
+          }
+        }
+      }
+    },
+    "ui.trash.c56012": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回收站"
+          }
+        }
+      }
+    },
+    "ui.unable_to_open_cards.a94fd5": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to Open Cards"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开卡片"
+          }
+        }
+      }
+    },
+    "ui.untitled_card.41c565": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untitled Card"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未命名卡片"
+          }
+        }
+      }
+    },
+    "ui.theme.efb52e": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题"
+          }
+        }
+      }
+    },
+    "ui.cream.d5398b": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cream"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "奶油"
+          }
+        }
+      }
+    },
+    "ui.mint.ced97c": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mint"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "薄荷"
+          }
+        }
+      }
+    },
+    "ui.sakura.95c0d6": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakura"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "樱花"
+          }
+        }
+      }
+    },
+    "ui.sky.b72804": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sky"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "天空"
+          }
+        }
+      }
+    },
+    "ui.paper.35045e": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paper"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "极简"
+          }
+        }
+      }
+    },
+    "ui.typeface.3a8c10": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typeface"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体"
+          }
+        }
+      }
+    },
+    "ui.system.6725e7": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统"
+          }
+        }
+      }
+    },
+    "ui.rounded.0a62cd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rounded"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆体"
+          }
+        }
+      }
+    },
+    "ui.serif.1b5e74": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serif"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "衬线体"
+          }
+        }
+      }
+    },
+    "ui.feedback.aac77d": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反馈"
+          }
+        }
+      }
+    },
+    "ui.help.b79cac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帮助"
+          }
+        }
+      }
+    },
+    "ui.privacy.54a57c": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私"
+          }
+        }
+      }
+    },
+    "ui.welcome_to_petal.830c7d": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to Petal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欢迎使用花瓣清单"
+          }
+        }
+      }
+    },
+    "ui.1_add_a_widget.579b63": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Add a Widget"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. 添加小组件"
+          }
+        }
+      }
+    },
+    "ui.2_complete_a_todo.1e6b1d": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Complete a Todo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. 完成待办"
+          }
+        }
+      }
+    },
+    "ui.3_create_a_card.1f2848": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3. Create a Card"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3. 创建卡片"
+          }
+        }
+      }
+    },
+    "ui.add_a_widget.f49140": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a Widget"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加小组件"
+          }
+        }
+      }
+    },
+    "ui.complete_a_todo.e12126": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete a Todo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成待办"
+          }
+        }
+      }
+    },
+    "ui.create_a_card.345ca6": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a Card"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建卡片"
+          }
+        }
+      }
+    },
+    "ui.control_click_the_desktop_choose_edit_widgets_then_find.e7f671": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control-click the desktop, choose Edit Widgets, then find Petal and add a medium or large widget."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住 Control 点按桌面，选择“编辑小组件”，找到花瓣清单并添加中号或大号小组件。"
+          }
+        }
+      }
+    },
+    "ui.edit_the_widget_to_choose_your_sample_card_click_a_circ.995e4c": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit the widget to choose your sample card. Click a circle to complete a todo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑小组件并选择示例卡片。点按圆圈完成待办。"
+          }
+        }
+      }
+    },
+    "ui.create_a_card_in_petal_or_press_option_command_n_to_add.40a490": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a card in Petal, or press Option–Command–N to add to Inbox."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在花瓣清单中新建卡片，或按 Option–Command–N 向收集箱添加内容。"
+          }
+        }
+      }
+    },
+    "ui.get_started.983f31": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Started"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始使用"
+          }
+        }
+      }
+    },
+    "ui.unable_to_save_your_input_is_kept_retry_when_local_stor.5e7faf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to save. Your input is kept. Retry when local storage is available."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存。输入已保留，请在本地存储可用后重试。"
+          }
+        }
+      }
+    },
+    "ui.a_support_email_will_be_configured_before_release.9de5d3": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A support email will be configured before release."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支持邮箱将在发布前配置。"
+          }
+        }
+      }
+    },
+    "ui.feedback_includes_only_app_version_build_macos_version_.4bc103": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback includes only app version, build, macOS version, and architecture. Review your email before sending."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反馈仅包含 App 版本、构建号、macOS 版本和架构。请在发送前检查邮件。"
+          }
+        }
+      }
+    },
+    "ui.this_deletes_all_petal_cards_and_reminders_on_this_mac_.caf85e": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This deletes all Petal cards and reminders on this Mac and all synced devices. Export a backup first. Cloud deletion completes when sync is enabled and iCloud is available."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这将删除此 Mac 及所有同步设备上的全部花瓣清单卡片与提醒。请先导出备份。启用同步且 iCloud 可用时才会完成云端删除。"
+          }
+        }
+      }
+    },
+    "ui.product_name.bfa93e": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Product name"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "产品名称"
+          }
+        }
+      }
+    },
+    "ui.deletion_needs_attention_retry_to_finish_local_cleanup_.fe156c": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deletion needs attention. Retry to finish local cleanup and refresh widgets."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除尚未完成。请重试以完成本地清理并刷新小组件。"
+          }
+        }
+      }
+    },
+    "ui.local_data_deleted_one_empty_inbox_remains_check_icloud.7766ed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local data deleted. One empty Inbox remains. Check iCloud sync status for cloud progress."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地数据已删除，保留一个空收集箱。请查看 iCloud 同步状态以确认云端进度。"
+          }
+        }
+      }
+    },
+    "ui.petal_backup_json.467893": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petal Backup.json"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "花瓣清单备份.json"
+          }
+        }
+      }
+    },
+    "ui.petal_before_import_json.e40d37": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petal Before Import.json"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "花瓣清单导入前备份.json"
+          }
+        }
+      }
+    },
+    "ui.confirm_product %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type %@ to confirm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入 %@ 以确认。"
+          }
+        }
+      }
+    },
+    "privacy.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effective date: September 24, 2026\n\nPetal Checklist stores cards, todos, completion states, reminders, and import history locally on your Mac. The app and widget share a sandboxed local store. Device preferences, widget layout, shortcuts, and onboarding completion stay local and are excluded from Petal JSON backups and iCloud replication.\n\nWhen iCloud sync is enabled, card and reminder data are replicated through Apple's CloudKit private database for your Apple Account. Apple provides this service under its own terms. Petal has no developer-operated content server, Petal account, advertising, or analytics SDK, and the developer does not collect your card contents or usage analytics. Your Mac login and Apple's services protect access; Petal does not provide an additional password lock or custom encryption.\n\nNotifications are optional. Petal asks for permission when you save your first enabled reminder, and schedules notifications on each authorized device. Notification text may reveal todo content on your lock screen according to macOS settings. Sound is off by default. You can change notification permission in System Settings.\n\nYou can import Windows notes, export JSON backups or Markdown, and replace your data from a JSON backup. Files are written to locations you choose. You control any copies you share or store elsewhere. A full restore replaces the dataset on all synced devices; it is not a local-only merge. Backups include reminder sound preference but exclude device layout and onboarding state.\n\nTrash and recoverable conflict copies are retained for 30 days and cleaned up when the app next processes the store. Content-free deletion metadata can remain in private iCloud to prevent older offline edits from returning. Very old devices with genuinely newer edits may restore records after the 30-day deletion-precedence window. Pending cloud changes require sync to be enabled and iCloud to be available; disabling sync keeps the local copy and does not erase the cloud copy.\n\nDelete All Data requires the localized product name and replaces data with one empty Inbox. Deletion propagates to all synced devices when they connect. Local cleanup and widget refresh can be retried if they fail. Cloud deletion is asynchronous: check sync status, and reconnect other devices. External backups, exports, Apple-managed backups, and copies you shared are not deleted by Petal. Recovery is possible only from copies you retained.\n\nFeedback opens your email app with only app version, build, macOS version, and architecture. No card content, identifiers, paths, logs, or diagnostics are automatically attached. You choose whether to send and what to include. Your email provider and a configured support mailbox receive any email you send. The development build has no support mailbox configured; it will be configured before release.\n\nThis static help site uses no cookies, analytics, scripts, remote fonts, or external resources. GitHub Pages hosting may process standard connection information under GitHub's own privacy terms; Petal adds no tracking."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生效日期：2026 年 9 月 24 日\n\n花瓣清单将卡片、待办、完成状态、提醒和导入记录保存在您的 Mac 本机。App 与小组件共用沙盒内的本地存储。设备偏好、小组件布局、快捷键和引导完成状态仅保存在本机，不包含在 Petal JSON 备份或 iCloud 复制中。\n\n启用 iCloud 同步后，卡片与提醒数据通过 Apple CloudKit 复制到您 Apple 账户的私人数据库。Apple 按其自身条款提供此服务。花瓣清单没有开发者运营的内容服务器、Petal 账户、广告或行为分析 SDK；开发者不收集您的卡片内容或使用分析数据。访问保护依赖 Mac 登录和 Apple 服务；花瓣清单不提供额外密码锁或自定义加密。\n\n通知为可选功能。首次保存已启用的提醒时，花瓣清单会申请通知权限，并在每台已授权设备上安排通知。根据 macOS 设置，通知可能在锁屏上显示待办内容。声音默认关闭。您可以在系统设置中更改通知权限。\n\n您可以导入 Windows 便签、导出 JSON 备份或 Markdown，以及从 JSON 备份替换数据。文件写入您选择的位置。您自行控制分享或存放在其他位置的副本。完整恢复会替换所有同步设备上的数据集，不是仅本机合并。备份包含提醒声音偏好，但不包含设备布局和引导状态。\n\n回收站和可恢复的冲突副本保留 30 天，并在 App 下次处理存储时清理。为防止旧离线编辑重新出现，私人 iCloud 中可能持续保留不含内容的删除元数据。超过 30 天删除优先期限后，很久未联网的设备若持有确实更新的编辑，可能恢复记录。待处理的云端更改需要启用同步且 iCloud 可用；关闭同步会保留本地副本，不会删除云端副本。\n\n“删除全部数据”要求输入本地化产品名称，并将数据替换为一个空收集箱。删除会在联网后传播到所有同步设备。本地清理或小组件刷新失败时可以重试。云端删除为异步过程：请检查同步状态并让其他设备重新联网。花瓣清单不会删除外部备份、导出文件、Apple 管理的备份或您分享的副本。仅能从自行保留的副本恢复。\n\n反馈会打开您的邮件 App，仅自动填写 App 版本、构建号、macOS 版本和架构。不会自动附带卡片内容、标识符、路径、日志或诊断信息。您自行决定是否发送及包含哪些内容。发送后，邮件服务商和已配置的支持邮箱将收到邮件。开发版本尚未配置支持邮箱，将在发布前配置。\n\n此静态帮助网站不使用 Cookie、分析、脚本、远程字体或外部资源。GitHub Pages 托管服务可能按 GitHub 自身隐私条款处理常规连接信息；花瓣清单不添加追踪。"
+          }
+        }
+      }
+    },
+    "help.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To add a widget, first launch Petal. Control-click your Mac desktop, choose Edit Widgets, find Petal, and add a medium or large widget. Petal cannot add a widget automatically. Edit the widget to select a card, one of five themes, a system typeface, and solid or translucent appearance.\n\nClick a todo circle in the widget to complete it. Click card text to open the editor, or the plus button to add to that card. Option–Command–N opens Quick Capture for Inbox; change or disable this shortcut in Settings. Return saves, Shift–Return adds a line, and Escape cancels. Failed saves keep your input for retry.\n\nCompleted todos remain visible that day, then disappear from the widget while remaining in the app. Daily todos become incomplete on a new local day. Completing a daily todo before its reminder may still allow today's notification; future daily reminders continue. Sound is off by default.\n\nCards remain available offline. Settings shows iCloud sync state and a retry action. Turning sync off keeps the local copy. An archived or trashed card cannot be edited through its widget; restore it in Petal or edit the widget to choose another card. Trash and conflict copies are kept for 30 days.\n\nThe editor separates completed todos from incomplete rows while preserving manual order. Undo returns a todo to its previous position. Daily streaks count consecutive local days; undo removes today's credit, and a missed day starts the next streak at one. Use a row's menu or the Delete command to remove that row.\n\nDismissed conflict notices do not remove their copies. Settings keeps unexpired copies available for reading, copying, and recovery. Recovery creates an ordinary card and is safe to repeat. Unrecovered conflict copies stay on this Mac for 30 days and are excluded from JSON backups; recover a copy first to include it in exports.\n\nSettings offers Windows import, JSON backup and full restore, and Markdown export. Import saves a backup first and ignores Windows window layout. Full restore replaces all synced devices. Delete All Data requires typing the product name and leaves one empty Inbox; export a backup first. If cleanup fails, retry in Settings. Cloud changes finish when iCloud is available and sync is enabled.\n\nHelp and Privacy are available offline in Settings. Feedback opens your mail app with only app version, build, macOS version, and architecture. Review the message before sending. A support mailbox will be configured before release; feedback is disabled until then."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加小组件前，请先启动花瓣清单。按住 Control 点按 Mac 桌面，选择“编辑小组件”，找到花瓣清单并添加中号或大号小组件。花瓣清单无法自动添加小组件。编辑小组件可选择卡片、五种主题之一、系统字体以及实色或半透明外观。\n\n点按小组件中的待办圆圈即可完成。点按卡片文字打开编辑器，点按加号向该卡片添加内容。Option–Command–N 打开收集箱的快速新增；可在设置中修改或关闭快捷键。Return 保存，Shift–Return 换行，Escape 取消。保存失败时会保留输入以便重试。\n\n已完成待办在当天继续显示，次日从小组件隐藏，但仍保留在 App 中。每日待办在新的本地日期恢复为未完成。在提醒时间前完成每日待办，当天仍可能收到通知；以后的每日提醒会继续。声音默认关闭。\n\n卡片可离线使用。设置中显示 iCloud 同步状态和重试操作。关闭同步保留本地副本。已归档或回收站中的卡片无法通过小组件编辑；可在花瓣清单中恢复，或编辑小组件选择其他卡片。回收站和冲突副本保留 30 天。\n\n编辑器将已完成待办与未完成内容分区显示，并保留手动顺序。撤销完成后，待办回到原来的相对位置。每日连续次数按当地日期计算；撤销移除今天的次数，漏过一天后下次从一开始。使用内容行菜单或 Delete 命令可删除单行。\n\n关闭冲突提示不会删除副本。设置中仍可查看、复制和恢复尚未到期的副本。恢复会创建普通卡片，重复操作不会创建重复卡片。未恢复的冲突副本仅在本机保留 30 天，不包含在 JSON 备份中；请先恢复为普通卡片再导出。\n\n设置提供 Windows 导入、JSON 备份和完整恢复以及 Markdown 导出。导入前会保存备份，Windows 窗口布局会被忽略。完整恢复会替换所有同步设备的数据。删除全部数据需要输入产品名称，并留下一个空收集箱；请先导出备份。清理失败时可在设置中重试。iCloud 可用且同步启用后，云端更改才会完成。\n\n设置中的帮助与隐私页面可离线查看。反馈会打开邮件 App，仅自动填写 App 版本、构建号、macOS 版本和架构。请在发送前检查邮件。支持邮箱将在发布前配置；配置前反馈不可用。"
+          }
+        }
+      }
+    },
+    "ui.storage_retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your input is kept. Check local storage and retry."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入已保留。请检查本地存储后重试。"
+          }
+        }
+      }
+    },
+    "ui.feedback_metadata": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App: %@ (%@)\nmacOS: %@\nArchitecture: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App：%@（%@）\nmacOS：%@\n架构：%@"
+          }
+        }
+      }
+    },
+    "ui.notification_permission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petal uses notifications for reminders you choose to enable. Todo text may appear on your lock screen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "花瓣清单通过通知发送您主动启用的提醒。待办文字可能显示在锁屏上。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

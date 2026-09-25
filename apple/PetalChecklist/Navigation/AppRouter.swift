@@ -1,0 +1,272 @@
+import Observation
+import PetalCore
+import PetalPersistence
+import PetalActions
+
+enum LibraryScope: String, CaseIterable, Identifiable {
+    case inbox, allCards, archive, trash, settings
+
+    var id: Self { self }
+}
+
+@MainActor @Observable
+final class AppRouter {
+    private let repository: any PetalRepository
+    private let reminders: ReminderCoordinator?
+    let library: CardLibraryModel
+    private(set) var scope: LibraryScope = .inbox
+    private(set) var selectedCardID: CardID?
+    private(set) var editor: CardEditorModel?
+    private(set) var isTransitioning = false
+    private(set) var errorMessage: String?
+    @ObservationIgnored private var editors: [CardID: CardEditorModel] = [:]
+    @ObservationIgnored private var transitionTail: Task<Void, Never>?
+    @ObservationIgnored private var latestRequest = 0
+    @ObservationIgnored private var pendingTransitions = 0
+    @ObservationIgnored private var closing = false
+    @ObservationIgnored private var closeDrain: Task<Bool, Never>?
+    @ObservationIgnored private var pendingStoreRefresh = false
+    @ObservationIgnored private var retryAction: (@MainActor () async -> Void)?
+
+    init(repository: any PetalRepository, library: CardLibraryModel, reminders: ReminderCoordinator? = nil) {
+        self.repository = repository
+        self.library = library
+        self.reminders = reminders
+    }
+
+    private func isCurrent(_ request: Int) -> Bool { request == latestRequest && !closing }
+
+    private func transition(_ operation: @escaping @MainActor (Int) async throws -> Void,
+                            retry: @escaping @MainActor () async -> Void,
+                            supersedesUserIntent: Bool = true) async {
+        guard !closing else { return }
+        if supersedesUserIntent { latestRequest += 1 }
+        let request = latestRequest
+        pendingTransitions += 1
+        isTransitioning = true
+        editor?.setTransitionLocked(true)
+        let preceding = transitionTail
+        let work = Task { @MainActor [self] in
+            await preceding?.value
+            defer {
+                pendingTransitions -= 1
+                isTransitioning = pendingTransitions > 0 || closing
+                if !isTransitioning { for model in editors.values { model.setTransitionLocked(false) } }
+            }
+            guard !closing, (!supersedesUserIntent || isCurrent(request)) else { return }
+            if supersedesUserIntent { retryAction = nil }
+            do {
+                try await operation(request)
+                guard !closing, (!supersedesUserIntent || isCurrent(request)) else { return }
+                if supersedesUserIntent {
+                    errorMessage = nil
+                    retryAction = nil
+                }
+            } catch {
+                guard !closing, (!supersedesUserIntent || isCurrent(request)) else { return }
+                errorMessage = PetalErrorCopy.message(error)
+                retryAction = retryAction ?? retry
+            }
+        }
+        transitionTail = work
+        await work.value
+    }
+
+    private func flushEditor() async throws {
+        if let editor, !(await editor.flushPending()) { throw EditorError.pendingSaveFailed }
+    }
+
+    func select(_ id: CardID) async {
+        await transition({ [self] request in
+            try await flushEditor()
+            guard isCurrent(request) else { return }
+            let next = editors[id] ?? CardEditorModel(cardID: id, repository: repository, reminders: reminders)
+            try await next.load()
+            guard isCurrent(request) else { return }
+            editors[id] = next
+            next.setTransitionLocked(true)
+            editor = next
+            selectedCardID = id
+        }, retry: { [weak self] in await self?.select(id) })
+    }
+
+    func show(_ destination: LibraryScope) async {
+        await transition({ [self] request in
+            try await flushEditor()
+            guard isCurrent(request) else { return }
+            try await library.show(destination)
+            guard isCurrent(request) else { return }
+            scope = destination
+            selectedCardID = nil
+            editor = nil
+        }, retry: { [weak self] in await self?.show(destination) })
+    }
+
+    func follow(_ route: PetalDeepLink, presentCapture: @escaping @MainActor (CardID) throws -> Void) async {
+        await transition({ [self] request in
+            do {
+                try await flushEditor()
+                guard isCurrent(request) else { return }
+                _ = try await DeepLinkHandler.validate(route, repository: repository)
+                guard isCurrent(request) else { return }
+                switch route {
+                case .card(let id):
+                    let next = editors[id] ?? CardEditorModel(cardID: id, repository: repository, reminders: reminders)
+                    try await next.load()
+                    guard isCurrent(request) else { return }
+                    var card = try await DeepLinkHandler.validate(route, repository: repository)
+                    if next.status != card.status {
+                        try await next.load()
+                        card = try await DeepLinkHandler.validate(route, repository: repository)
+                    }
+                    guard next.status == card.status else { throw DeepLinkError.unavailable }
+                    guard isCurrent(request) else { return }
+                    let destination: LibraryScope = card.status == .archived ? .archive : .allCards
+                    let snapshot = try await library.prepare(destination)
+                    guard isCurrent(request) else { return }
+                    let finalCard = try await DeepLinkHandler.validate(route, repository: repository)
+                    guard finalCard.status == card.status else { throw DeepLinkError.unavailable }
+                    guard isCurrent(request) else { return }
+                    library.publish(snapshot)
+                    editors[id] = next
+                    next.setTransitionLocked(true)
+                    editor = next
+                    selectedCardID = id
+                    scope = destination
+                case .quickAdd(let id):
+                    try presentCapture(id)
+                }
+            } catch let error as DeepLinkError { throw error
+            } catch { throw DeepLinkError.cannotOpen }
+        }, retry: { [weak self] in await self?.follow(route, presentCapture: presentCapture) })
+    }
+
+    func rejectDeepLink(_ error: DeepLinkError) async {
+        await transition({ _ in throw error },
+            retry: { [weak self] in await self?.rejectDeepLink(error) })
+    }
+
+    func createCard() async {
+        await transition({ [self] request in
+            try await flushEditor()
+            guard isCurrent(request) else { return }
+            let card = try await library.createCard(title: String(localized: "ui.untitled_card.41c565"))
+            retryAction = { [weak self] in await self?.select(card.id) }
+            let next = CardEditorModel(cardID: card.id, repository: repository, reminders: reminders)
+            try await next.load()
+            guard isCurrent(request) else { return }
+            editors[card.id] = next
+            next.setTransitionLocked(true)
+            scope = .allCards
+            editor = next
+            selectedCardID = card.id
+        }, retry: { [weak self] in await self?.createCard() })
+    }
+
+    func moveSelected(to status: CardStatus, replacementInbox: CardID? = nil) async {
+        guard let id = selectedCardID else { return }
+        await transition({ [self] request in
+            try await flushEditor()
+            guard isCurrent(request) else { return }
+            try await library.move(id, to: status, replacementInbox: replacementInbox)
+            guard isCurrent(request) else { return }
+            selectedCardID = nil
+            editor = nil
+        }, retry: { [weak self] in await self?.moveSelected(to: status, replacementInbox: replacementInbox) })
+    }
+
+    func restore(_ id: CardID) async {
+        await transition({ [self] request in
+            try await flushEditor()
+            guard isCurrent(request) else { return }
+            try await library.restore(id)
+            if selectedCardID == id { try await editor?.load() }
+        }, retry: { [weak self] in await self?.restore(id) })
+    }
+
+    func captureDidCommit(to id: CardID) async {
+        await transition({ [self] _ in
+            if selectedCardID == id, let current = editor {
+                try await flushEditor()
+                guard !closing, selectedCardID == id, editor === current else { return }
+                try await current.load()
+            }
+            try await library.refresh()
+        }, retry: { [weak self] in await self?.captureDidCommit(to: id) }, supersedesUserIntent: false)
+    }
+
+    func syncDidCommit() async {
+        pendingStoreRefresh = true
+        await drainPendingStoreRefresh()
+    }
+
+    private func drainPendingStoreRefresh() async {
+        guard pendingStoreRefresh, !closing else { return }
+        var entered = false
+        var refreshed = false
+        await transition({ [self] _ in
+            entered = true
+            pendingStoreRefresh = false
+            try await flushEditor()
+            if let id = selectedCardID {
+                if try await repository.card(id: id) == nil {
+                    editors.removeValue(forKey: id)
+                    selectedCardID = nil; editor = nil
+                } else { try await editor?.load() }
+            }
+            try await library.refresh()
+            refreshed = true
+        }, retry: { [weak self] in await self?.syncDidCommit() }, supersedesUserIntent: false)
+        if entered && !refreshed { pendingStoreRefresh = true }
+    }
+
+    func refreshTemporalState() {
+        for model in editors.values { model.refreshTemporalState() }
+    }
+
+    func retryError() async {
+        let retry = retryAction
+        errorMessage = nil
+        retryAction = nil
+        await retry?()
+    }
+
+    func present(_ error: Error, retry: @escaping @MainActor () async -> Void) {
+        errorMessage = PetalErrorCopy.message(error)
+        retryAction = retry
+    }
+
+    func prepareClose() async -> Bool {
+        if let closeDrain { return await closeDrain.value }
+        closing = true
+        isTransitioning = true
+        editor?.setTransitionLocked(true)
+        let pendingTransition = transitionTail
+        let pendingEditor = editor
+        let drain = Task { @MainActor in
+            await pendingTransition?.value
+            return await pendingEditor?.flushPending() ?? true
+        }
+        closeDrain = drain
+        let saved = await drain.value
+        if !saved {
+            closeDrain = nil
+            closing = false
+            isTransitioning = false
+            editor?.setTransitionLocked(false)
+        }
+        return saved
+    }
+
+    func closeRequestDidEnd() {
+        closeDrain = nil
+        closing = false
+        isTransitioning = pendingTransitions > 0
+        if !isTransitioning {
+            for model in editors.values { model.setTransitionLocked(false) }
+        }
+        if pendingStoreRefresh {
+            Task { @MainActor [weak self] in await self?.drainPendingStoreRefresh() }
+        }
+    }
+}

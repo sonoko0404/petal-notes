@@ -1,0 +1,422 @@
+import XCTest
+import PetalCore
+import PetalPersistence
+import PetalTestSupport
+import SwiftUI
+import PetalNotifications
+import PetalActions
+import UserNotifications
+@testable import PetalChecklist
+
+@MainActor
+final class CardEditorModelTests: XCTestCase {
+    func testEditorDailyCompletionKeepsRepeatAndCancelsSnoozeBeforeReturning() async throws {
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
+        let center = EditorNotificationCenter()
+        await center.authorizeInSettings()
+        let coordinator = ReminderCoordinator(repository: f.repository, scheduler: UserNotificationScheduler(center: center))
+        let model = CardEditorModel(cardID: f.fixtureCardID, repository: f.repository, reminders: coordinator)
+        try await model.load()
+        let id = model.lines[0].id
+        model.editReminder(lineID: id, reminder: Reminder(rule: .daily(localMinute: 1439, timeZoneIdentifier: "UTC"),
+            isEnabled: true, snoozedUntil: .now.addingTimeInterval(300)))
+        _ = await model.saveReminder(lineID: id)
+        try await model.setCompleted(lineID: id, completed: true)
+        let requests = await center.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertNotNil(requests.first?.dailyComponents)
+        XCTAssertEqual(requests.first?.id, "line.\(id.rawValue)")
+        let stored = try await f.repository.lines(cardID: f.fixtureCardID).first
+        XCTAssertNil(stored?.reminder?.snoozedUntil)
+    }
+
+    func testEditorCompletesYesterdayDailyTodoForCurrentLocalDay() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Daily", now: .now)
+        let line = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Repeat"), now: .now)
+        let reminder = Reminder(rule: .daily(localMinute: 600, timeZoneIdentifier: TimeZone.current.identifier), isEnabled: true)
+        _ = try await repository.setReminder(lineID: line.id, reminder: reminder, now: .now)
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: .now)!
+        try await repository.setWidgetCompleted(lineID: line.id, completed: true, now: yesterday, calendar: .current)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+
+        try await model.setCompleted(lineID: line.id, completed: true)
+
+        let storedLines = try await repository.lines(cardID: card.id)
+        let stored = try XCTUnwrap(storedLines.first)
+        XCTAssertEqual(CompletionPolicy.localDayKey(for: stored.completedAt!, calendar: .current),
+                       CompletionPolicy.localDayKey(for: .now, calendar: .current))
+    }
+    func testAppDelegateInstallsBrokerBeforeRepositoryAndRouterExist() async throws {
+        let center = UNUserNotificationCenter.current()
+        let previous = center.delegate
+        defer { center.delegate = previous }
+        let appDelegate = PetalAppDelegate()
+        let delegate = try XCTUnwrap(center.delegate as? NotificationResponseDelegate)
+        let lineID = LineID(rawValue: UUID()), cardID = CardID(rawValue: UUID())
+        let native = try SystemNotificationCenter.makeRequest(ReminderRequest(id: "line.\(lineID.rawValue)",
+            cardID: cardID, lineID: lineID, body: "Todo", fireDate: .distantFuture, sound: false))
+        await delegate.receive(request: native, actionIdentifier: "complete")
+        let handler = LaunchActionRecorder()
+        await appDelegate.notificationBroker.install(handler, onFailure: {})
+        let actions = await handler.actions
+        XCTAssertEqual(actions, [.complete])
+    }
+    func testReminderFeedbackIsPerLineAndSettingsOpenerReportsFailure() async throws {
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 2)
+        var opened: URL?
+        let model = CardEditorModel(cardID: f.fixtureCardID, repository: f.repository,
+            settingsOpener: NotificationSettingsOpener(openURL: { opened = $0; return false }))
+        try await model.load()
+        let first = model.lines[0].id, second = model.lines[1].id
+        model.editReminder(lineID: first, reminder: Reminder(rule: .daily(localMinute: -1, timeZoneIdentifier: "UTC"), isEnabled: true))
+        let failed = await model.saveReminder(lineID: first)
+        XCTAssertFalse(failed)
+        model.editReminder(lineID: second, reminder: Reminder(rule: .oneTime(.distantFuture), isEnabled: true))
+        let saved = await model.saveReminder(lineID: second)
+        XCTAssertTrue(saved)
+        XCTAssertTrue(model.reminderErrors.contains(first))
+        XCTAssertFalse(model.reminderErrors.contains(second))
+        XCTAssertNil(model.reminderStates[first])
+        XCTAssertEqual(model.reminderStates[second], .permissionRequired)
+        model.openNotificationSettings(lineID: second)
+        XCTAssertEqual(opened?.absoluteString, "x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+        XCTAssertTrue(model.settingsOpenErrors.contains(second))
+        XCTAssertFalse(model.settingsOpenErrors.contains(first))
+    }
+    func testReturningFromSettingsRefreshesAuthorizationWithoutPrompt() async throws {
+        let f = try await InMemoryPetalRepository.cardWithTodos(count: 1)
+        let center = EditorNotificationCenter()
+        let reminders = ReminderCoordinator(repository: f.repository, scheduler: UserNotificationScheduler(center: center))
+        let model = CardEditorModel(cardID: f.fixtureCardID, repository: f.repository, reminders: reminders)
+        try await model.load()
+        let id = model.lines[0].id
+        model.editReminder(lineID: id, reminder: Reminder(rule: .oneTime(.distantFuture), isEnabled: true))
+        _ = await model.saveReminder(lineID: id)
+        XCTAssertEqual(model.reminderStates[id], .permissionDenied)
+        await center.authorizeInSettings()
+        await model.refreshReminderAuthorization()
+        XCTAssertEqual(model.reminderStates[id], .scheduled)
+        let prompts = await center.prompts
+        XCTAssertEqual(prompts, 0)
+    }
+    func testLocalCommitBroadcastsForLifecycleReconciliation() async throws {
+        let repo = try await InMemoryPetalRepository.bootstrapped()
+        let notification = expectation(forNotification: .petalRepositoryDidCommit, object: nil)
+        _ = try await repo.createCard(title: "Mutation", now: .now)
+        await fulfillment(of: [notification], timeout: 2)
+    }
+    func testReminderFailureRetainsDraftAndTextCannotHaveReminder() async throws {
+        let store = try ModelContainerFactory.makeInMemory()
+        let repo = SwiftDataPetalRepository(container: store)
+        let card = try await repo.createCard(title: "A", now: .now)
+        let line = try await repo.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Todo"), now: .now)
+        let failing = SwiftDataPetalRepository(container: store, faultInjector: .failOnceBeforeSave)
+        let model = CardEditorModel(cardID: card.id, repository: failing)
+        try await model.load()
+        let reminder = Reminder(rule: .daily(localMinute: 600, timeZoneIdentifier: "UTC"), isEnabled: true)
+        model.editReminder(lineID: line.id, reminder: reminder)
+        let failed = await model.saveReminder(lineID: line.id)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(model.reminderDrafts[line.id]?.value, reminder)
+        let retried = await model.saveReminder(lineID: line.id)
+        XCTAssertTrue(retried)
+        XCTAssertEqual(model.lines.first?.reminder, reminder)
+        try await model.convert(lineID: line.id, to: .text)
+        model.editReminder(lineID: line.id, reminder: reminder)
+        XCTAssertNil(model.reminderDrafts[line.id])
+    }
+    func testMixedLinesDefaultToTodoConvertCompleteAndShareReorderPath() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Today", now: .now)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        try await model.addLine(text: "First")
+        try await model.addLine(text: "Second")
+        XCTAssertEqual(model.lines.map(\.kind), [.todo, .todo])
+        try await model.convert(lineID: model.lines[0].id, to: .text)
+        XCTAssertEqual(model.lines.map(\.kind), [.text, .todo])
+        try await model.setCompleted(lineID: model.lines[1].id, completed: true)
+        XCTAssertTrue(model.lines[1].isCompleted)
+        try await model.move(lineID: model.lines[1].id, direction: .up)
+        XCTAssertEqual(model.lines.map(\.text), ["First", "Second"])
+        try await model.reorder(orderedLineIDs: model.lines.map(\.id).reversed())
+        let persistedOrder = try await repository.lines(cardID: card.id).map(\.text)
+        XCTAssertEqual(persistedOrder, ["Second", "First"])
+    }
+
+    func testDebouncePersistsTitleAndTextAndFlushesBeforeLeaving() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Old", now: .now)
+        let line = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Old line"), now: .now)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        model.editTitle("New")
+        model.editText(lineID: line.id, text: "New line")
+        let beforeTitle = try await repository.card(id: card.id)?.title
+        XCTAssertEqual(beforeTitle, "Old")
+        let flushed = await model.flushPending()
+        XCTAssertTrue(flushed)
+        let afterTitle = try await repository.card(id: card.id)?.title
+        let afterLine = try await repository.lines(cardID: card.id).first?.text
+        XCTAssertEqual(afterTitle, "New")
+        XCTAssertEqual(afterLine, "New line")
+        XCTAssertEqual(model.saveState, .saved)
+    }
+
+    func testDebounceCancelsEarlierTextAndCommitsLatestAfterFourHundredMilliseconds() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Card", now: .now)
+        let line = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Old"), now: .now)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        model.editText(lineID: line.id, text: "First")
+        try await Task.sleep(for: .milliseconds(250))
+        model.editText(lineID: line.id, text: "Final")
+        try await Task.sleep(for: .milliseconds(250))
+        let before = try await repository.lines(cardID: card.id).first?.text
+        XCTAssertEqual(before, "Old")
+        try await Task.sleep(for: .milliseconds(250))
+        let after = try await repository.lines(cardID: card.id).first?.text
+        XCTAssertEqual(after, "Final")
+    }
+
+    func testFailedSaveRetainsDraftAndRetryPersistsIt() async throws {
+        let store = try ModelContainerFactory.makeInMemory()
+        let setup = SwiftDataPetalRepository(container: store)
+        try await setup.bootstrap(now: .now)
+        let card = try await setup.createCard(title: "Card", now: .now)
+        let line = try await setup.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Old"), now: .now)
+        let repository = SwiftDataPetalRepository(container: store, faultInjector: .failOnceBeforeSave)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        model.editText(lineID: line.id, text: "Draft")
+        let first = await model.flushPending()
+        XCTAssertFalse(first)
+        XCTAssertEqual(model.unsavedText[line.id], "Draft")
+        let beforeRetry = try await setup.lines(cardID: card.id).first?.text
+        XCTAssertEqual(beforeRetry, "Old")
+        let retry = await model.retry()
+        XCTAssertTrue(retry)
+        let afterRetry = try await setup.lines(cardID: card.id).first?.text
+        XCTAssertEqual(afterRetry, "Draft")
+        XCTAssertTrue(model.unsavedText.isEmpty)
+    }
+
+    func testFlushDrainsEditArrivingDuringSuspendedWrite() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Old", now: .now)
+        let repository = ControlledRepository(base: base)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        repository.titleGate.pauseNext()
+        model.editTitle("First")
+        let flush = Task { await model.flushPending() }
+        await repository.titleGate.waitUntilEntered()
+        model.editTitle("Latest")
+        repository.titleGate.resume()
+        let flushed = await flush.value
+        XCTAssertTrue(flushed)
+        let persisted = try await base.card(id: card.id)
+        XCTAssertEqual(persisted?.title, "Latest")
+        XCTAssertNil(model.unsavedTitle)
+    }
+
+    func testNewLineDraftSurvivesInFlightEditAndRejectsDuplicateSubmission() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Card", now: .now)
+        let repository = ControlledRepository(base: base)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        model.editNewLine("First")
+        repository.addGate.pauseNext()
+        let submission = Task { try await model.submitNewLine() }
+        await repository.addGate.waitUntilEntered()
+        model.editNewLine("Second")
+        let duplicate = try await model.submitNewLine()
+        XCTAssertFalse(duplicate)
+        repository.addGate.resume()
+        let submitted = try await submission.value
+        XCTAssertTrue(submitted)
+        XCTAssertEqual(model.newLineDraft, "Second")
+        let firstLines = try await base.lines(cardID: card.id).map(\.text)
+        XCTAssertEqual(firstLines, ["First"])
+        let secondSubmitted = try await model.submitNewLine()
+        XCTAssertTrue(secondSubmitted)
+        let bothLines = try await base.lines(cardID: card.id).map(\.text)
+        XCTAssertEqual(bothLines, ["First", "Second"])
+    }
+
+    func testNewLineSubmissionKeepsNewRevisionEvenWhenTextReturnsToSameValue() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Card", now: .now)
+        let repository = ControlledRepository(base: base)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        model.editNewLine("Same")
+        repository.addGate.pauseNext()
+        let submission = Task { try await model.submitNewLine() }
+        await repository.addGate.waitUntilEntered()
+        model.editNewLine("Changed")
+        model.editNewLine("Same")
+        repository.addGate.resume()
+        _ = try await submission.value
+        XCTAssertEqual(model.newLineDraft, "Same")
+    }
+
+    func testTrashedCardLoadsReadOnlyAndCanBeRestored() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Trash me", now: .now)
+        try await repository.moveCard(card.id, to: .trashed, replacementInbox: nil, now: .now)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        XCTAssertTrue(model.isReadOnly)
+        model.editTitle("Should not save")
+        XCTAssertNil(model.unsavedTitle)
+        try await repository.moveCard(card.id, to: .active, replacementInbox: nil, now: .now)
+        try await model.load()
+        XCTAssertFalse(model.isReadOnly)
+    }
+
+    func testMoveCommandIgnoresHorizontalDirections() {
+        XCTAssertEqual(CardLineRow.moveDirection(for: .up), .up)
+        XCTAssertEqual(CardLineRow.moveDirection(for: .down), .down)
+        XCTAssertNil(CardLineRow.moveDirection(for: .left))
+        XCTAssertNil(CardLineRow.moveDirection(for: .right))
+    }
+
+    func testMoveAtOrderBoundaryDoesNotWriteOrChangeOrder() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Card", now: .now)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        try await model.addLine(text: "First")
+        try await model.addLine(text: "Last")
+        let beforeCount = try await repository.pendingOutboxCount()
+        try await model.move(lineID: model.lines[0].id, direction: .up)
+        try await model.move(lineID: model.lines[1].id, direction: .down)
+        XCTAssertEqual(model.lines.map(\.text), ["First", "Last"])
+        let afterCount = try await repository.pendingOutboxCount()
+        XCTAssertEqual(afterCount, beforeCount)
+    }
+
+    func testEditorProjectsDailyCompletionAcrossMidnightWithoutChangingStoredOrder() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        var now = Date(timeIntervalSince1970: 1_800_014_400)
+        let repository = try await InMemoryPetalRepository.bootstrapped(now: now)
+        let card = try await repository.createCard(title: "Sections", now: now)
+        let a = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "A"), now: now)
+        let b = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "B"), now: now)
+        let c = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "C daily yesterday"), now: now)
+        let d = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "D daily today"), now: now)
+        let daily = Reminder(rule: .daily(localMinute: 600, timeZoneIdentifier: "UTC"), isEnabled: true)
+        _ = try await repository.setReminder(lineID: c.id, reminder: daily, now: now)
+        _ = try await repository.setReminder(lineID: d.id, reminder: daily, now: now)
+        try await repository.setWidgetCompleted(lineID: b.id, completed: true, now: now, calendar: calendar)
+        try await repository.setWidgetCompleted(lineID: c.id, completed: true, now: now.addingTimeInterval(-86_400), calendar: calendar)
+        try await repository.setWidgetCompleted(lineID: d.id, completed: true, now: now, calendar: calendar)
+        let model = CardEditorModel(cardID: card.id, repository: repository, now: { now }, calendar: { calendar })
+        try await model.load()
+
+        XCTAssertEqual(model.incompleteLines.map(\.id), [a.id, c.id])
+        XCTAssertEqual(model.completedLines.map(\.id), [b.id, d.id])
+        XCTAssertEqual(model.lines.map(\.id), [a.id, b.id, c.id, d.id])
+
+        now = now.addingTimeInterval(86_400)
+        model.refreshTemporalState()
+        XCTAssertEqual(model.incompleteLines.map(\.id), [a.id, c.id, d.id])
+        XCTAssertEqual(model.completedLines.map(\.id), [b.id])
+        XCTAssertEqual(model.lines.map(\.id), [a.id, b.id, c.id, d.id])
+    }
+
+    func testArchivedCardCanToggleCompletionWithoutWidgetActiveCardRestriction() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Archived", now: .now)
+        let line = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Finish"), now: .now)
+        try await repository.moveCard(card.id, to: .archived, replacementInbox: nil, now: .now)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+
+        try await model.setCompleted(lineID: line.id, completed: true)
+
+        XCTAssertTrue(try XCTUnwrap(model.lines.first).isCompleted)
+    }
+
+    func testCompletionRefreshesDailyProjectionAtMidnightBeforeToggling() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        var now = Date(timeIntervalSince1970: 1_800_014_400)
+        let repository = try await InMemoryPetalRepository.bootstrapped(now: now)
+        let card = try await repository.createCard(title: "Midnight", now: now)
+        let line = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Daily"), now: now)
+        _ = try await repository.setReminder(lineID: line.id,
+            reminder: Reminder(rule: .daily(localMinute: 600, timeZoneIdentifier: "UTC"), isEnabled: true), now: now)
+        let model = CardEditorModel(cardID: card.id, repository: repository, now: { now }, calendar: { calendar })
+        try await model.load()
+        now = now.addingTimeInterval(86_400)
+
+        try await model.setCompleted(lineID: line.id, completed: true)
+
+        XCTAssertEqual(model.completedLines.map(\.id), [line.id])
+    }
+
+    func testIncompleteReorderTargetsVisibleIDsAndUndoRestoresManualPosition() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Order", now: .now)
+        let a = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "A"), now: .now)
+        let b = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "B"), now: .now)
+        let c = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "C"), now: .now)
+        try await repository.setWidgetCompleted(lineID: b.id, completed: true, now: .now, calendar: .current)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+
+        XCTAssertEqual(model.incompleteLines.map(\.id), [a.id, c.id])
+        try await model.move(lineID: c.id, direction: .up)
+        XCTAssertEqual(model.incompleteLines.map(\.id), [c.id, a.id])
+        let movedIDs = try await repository.lines(cardID: card.id).map(\.id)
+        XCTAssertEqual(movedIDs, [c.id, b.id, a.id])
+
+        try await model.setCompleted(lineID: b.id, completed: false)
+        XCTAssertEqual(model.incompleteLines.map(\.id), [c.id, b.id, a.id])
+        XCTAssertTrue(model.completedLines.isEmpty)
+    }
+
+    func testDeleteLineFlushesOtherDraftsAndRemovesOnlyRequestedRow() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await repository.createCard(title: "Delete", now: .now)
+        let keep = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Keep"), now: .now)
+        let remove = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Remove"), now: .now)
+        let model = CardEditorModel(cardID: card.id, repository: repository)
+        try await model.load()
+        model.editText(lineID: keep.id, text: "Keep draft")
+
+        try await model.delete(lineID: remove.id)
+
+        XCTAssertEqual(model.lines.map(\.id), [keep.id])
+        XCTAssertEqual(model.lines.first?.text, "Keep draft")
+        let savedIDs = try await repository.lines(cardID: card.id).map(\.id)
+        XCTAssertEqual(savedIDs, [keep.id])
+    }
+}
+
+private actor EditorNotificationCenter: NotificationCenterAdapter {
+    var state: AuthorizationState = .denied
+    var prompts = 0
+    var requests: [ReminderRequest] = []
+    func authorizeInSettings() { state = .authorized }
+    func authorization() -> AuthorizationState { state }
+    func requestAuthorization() -> AuthorizationState { prompts += 1; return state }
+    func pending() -> [ReminderRequest] { requests }
+    func add(_ request: ReminderRequest) { requests.append(request) }
+    func remove(_ ids: [String]) { requests.removeAll { ids.contains($0.id) } }
+    func deliveredRequests() -> [ReminderRequest] { [] }
+    func removeDelivered(_ ids: [String]) {}
+    func registerActions() {}
+}
+
+private actor LaunchActionRecorder: NotificationActionHandling {
+    var actions: [NotificationAction] = []
+    func handle(_ action: NotificationAction, lineID: LineID, cardID: CardID) { actions.append(action) }
+}

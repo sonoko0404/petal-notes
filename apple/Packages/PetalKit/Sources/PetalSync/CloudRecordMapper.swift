@@ -1,0 +1,117 @@
+import CloudKit
+import Foundation
+import PetalCore
+import PetalPersistence
+
+public enum CloudRecordMapper {
+    public static let zoneID = CKRecordZone.ID(zoneName: "Petal", ownerName: CKCurrentUserDefaultName)
+    public static let userStateID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
+    public static func outbound(_ snapshot: SyncSnapshot) throws -> [OutboundCloudChange] {
+        let groups = Dictionary(grouping: snapshot.changes.filter { $0.entity != .conflict }) {
+            "\($0.entity.rawValue).\($0.entityID)"
+        }
+        return try groups.values.compactMap { journal in
+            let ordered = journal.sorted { $0.sequence < $1.sequence }
+            guard let last = ordered.last else { return nil }
+            let payload: ReplicatedRecord.Payload
+            if last.operation == .delete {
+                guard let tombstone = snapshot.tombstones.first(where: { $0.entityID == last.entityID }) else {
+                    throw CloudTransportError.invalidRecord
+                }
+                payload = .tombstone(tombstone)
+            } else {
+                switch last.entity {
+                case .card: payload = .card(try JSONDecoder().decode(Card.self, from: last.payload))
+                case .line: payload = .line(try JSONDecoder().decode(CardLine.self, from: last.payload))
+                case .userState: payload = .userState(try JSONDecoder().decode(UserStateChange.self, from: last.payload))
+                case .conflict: return nil
+                }
+            }
+            let generation: ResetGeneration
+            if case .tombstone(let value) = payload { generation = value.generation ?? snapshot.generation }
+            else { generation = snapshot.generation }
+            return OutboundCloudChange(record: ReplicatedRecord(payload: payload, generation: generation,
+                replacementInboxID: snapshot.replacementExpectedInboxID), journal: ordered)
+        }.sorted { $0.journal.last!.sequence < $1.journal.last!.sequence }
+    }
+
+    public static func identity(_ record: ReplicatedRecord) -> (type: String, id: UUID, modifiedAt: Date, revision: Int64, deviceID: String) {
+        switch record.payload {
+        case .card(let v): ("PTCard", v.id.rawValue, v.modifiedAt, v.revision, v.deviceID)
+        case .line(let v): ("PTLine", v.id.rawValue, v.modifiedAt, v.revision, v.deviceID)
+        case .userState(let value): ("PTUserState", userStateID, value.modifiedAt ?? record.generation.modifiedAt,
+            value.revision ?? 1, value.deviceID ?? record.generation.deviceID)
+        case .tombstone(let v): (v.entity == .card ? "PTCard" : "PTLine", v.entityID, v.deletedAt, v.revision, v.deviceID)
+        case .invalidInbound(let v): ("InvalidInbound", v.entityID, .distantPast, 1, "")
+        }
+    }
+
+    public static func encode(_ value: ReplicatedRecord) throws -> CKRecord {
+        if case .invalidInbound = value.payload { throw CloudTransportError.invalidRecord }
+        let identity = identity(value)
+        let record = CKRecord(recordType: identity.type, recordID: CKRecord.ID(recordName: identity.id.uuidString, zoneID: zoneID))
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        // Codable payload is a closed domain enum, never arbitrary settings/diagnostics.
+        record["payload"] = try encoder.encode(value.payload) as CKRecordValue
+        record["modifiedAt"] = identity.modifiedAt as CKRecordValue
+        record["revision"] = identity.revision as CKRecordValue
+        record["deviceID"] = identity.deviceID as CKRecordValue
+        record["schemaVersion"] = 1 as CKRecordValue
+        record["reminderVersion"] = 1 as CKRecordValue
+        record["resetGeneration"] = value.generation.id.uuidString as CKRecordValue
+        record["resetModifiedAt"] = value.generation.modifiedAt as CKRecordValue
+        record["resetDeviceID"] = value.generation.deviceID as CKRecordValue
+        // Explicit zero clears a prior server value when a later normal reset
+        // updates the same PTUserState or restored card/line record identity.
+        record["resetIsReplacement"] = (value.generation.isReplacement ? 1 : 0) as CKRecordValue
+        record["isDeleted"] = { if case .tombstone = value.payload { 1 } else { 0 } }() as CKRecordValue
+        record["redactionVersion"] = 1 as CKRecordValue
+        record["replacementInboxID"] = (value.replacementInboxID?.uuidString ?? "") as CKRecordValue
+        return record
+    }
+
+    public static func decode(_ record: CKRecord) throws -> ReplicatedRecord {
+        if record["redactionVersion"] != nil && record["redactionVersion"] as? Int64 != 1 {
+            throw CloudTransportError.invalidRecord
+        }
+        if record["resetIsReplacement"] != nil,
+           record["resetIsReplacement"] as? Int64 != 0 && record["resetIsReplacement"] as? Int64 != 1 {
+            throw CloudTransportError.invalidRecord
+        }
+        guard record.recordID.zoneID == zoneID,
+              record["schemaVersion"] as? Int64 == 1, record["reminderVersion"] as? Int64 == 1,
+              let payload = record["payload"] as? Data,
+              payload.count <= 1_048_576,
+              let generation = record["resetGeneration"] as? String, let id = UUID(uuidString: generation),
+              let date = record["resetModifiedAt"] as? Date, let device = record["resetDeviceID"] as? String else {
+            throw CloudTransportError.invalidRecord
+        }
+        do {
+            let expected = record["replacementInboxID"] as? String
+            if record["replacementInboxID"] != nil,
+               expected == nil || (expected != "" && UUID(uuidString: expected!) == nil) { throw CloudTransportError.invalidRecord }
+            let value = ReplicatedRecord(payload: try JSONDecoder().decode(ReplicatedRecord.Payload.self, from: payload),
+                generation: ResetGeneration(id: id, modifiedAt: date, deviceID: device,
+                    isReplacement: record["resetIsReplacement"] as? Int64 == 1),
+                replacementInboxID: expected.flatMap(UUID.init(uuidString:)))
+            if case .invalidInbound = value.payload { throw CloudTransportError.invalidRecord }
+            var identity = identity(value)
+            if case .tombstone(let tombstone) = value.payload, record.recordType == "PTTombstone" {
+                // Legacy fences remain mergeable; new fences live at the entity
+                // identity so conditional saves protect concurrent restoration.
+                identity = ("PTTombstone", tombstone.id, tombstone.deletedAt, tombstone.revision, tombstone.deviceID)
+            } else if case .tombstone = value.payload {
+                guard record["isDeleted"] as? Int64 == 1, record["redactionVersion"] as? Int64 == 1 else {
+                    throw CloudTransportError.invalidRecord
+                }
+            } else if record["isDeleted"] != nil && record["isDeleted"] as? Int64 != 0 {
+                throw CloudTransportError.invalidRecord
+            }
+            guard record.recordType == identity.type, record.recordID.recordName == identity.id.uuidString,
+                  record["modifiedAt"] as? Date == identity.modifiedAt, record["revision"] as? Int64 == identity.revision,
+                  record["deviceID"] as? String == identity.deviceID else { throw CloudTransportError.invalidRecord }
+            return value
+        } catch { throw CloudTransportError.invalidRecord }
+    }
+}

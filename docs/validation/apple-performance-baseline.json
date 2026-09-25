@@ -1,0 +1,57 @@
+{
+  "date": "2026-09-24",
+  "reference": {
+    "model": "Mac14,2",
+    "chip": "Apple M2",
+    "memoryBytes": 8589934592,
+    "os": "macOS 27.0 (26A428)",
+    "xcode": "27.0 (27A266a)",
+    "swift": "6.4 compiler; Swift 6 language mode; strict concurrency complete",
+    "configuration": "Release -O wholemodule ENABLE_TESTABILITY=YES",
+    "deploymentTarget": "macOS 14.0"
+  },
+  "fixture": {
+    "cards": 500,
+    "rows": 5000,
+    "storage": "isolated production on-disk repository",
+    "warmup": "search and real Widget actions outside intervals",
+    "clock": "ContinuousClock"
+  },
+  "configuration": "Release",
+  "budgets_ms": {
+    "search_ms": 300,
+    "widget_save_ms": 1000,
+    "cold_editable_ms": 2000,
+    "hot_focus_ms": 300
+  },
+  "runs": [
+    {
+      "search_ms": 240.271875,
+      "widget_save_ms": 310.706167,
+      "cold_editable_ms": null,
+      "hot_focus_ms": null
+    },
+    {
+      "search_ms": 243.003084,
+      "widget_save_ms": 319.652458,
+      "cold_editable_ms": null,
+      "hot_focus_ms": null
+    },
+    {
+      "search_ms": 239.367917,
+      "widget_save_ms": 311.776416,
+      "cold_editable_ms": null,
+      "hot_focus_ms": null
+    }
+  ],
+  "results": {
+    "search_ms": "PASS",
+    "widget_save_ms": "PASS",
+    "cold_editable_ms": "BLOCKED",
+    "hot_focus_ms": "BLOCKED"
+  },
+  "evidenceDirectory": "/tmp/petal-release.4dzsLJ",
+  "baselinePolicy": "Fail a metric only when all three consecutive Release observations are >= its strict budget. Missing UI observations are BLOCKED, not passed.",
+  "widgetMeasurement": "Full production intent/action/store-reopen/local-commit/reconcile/reload duration; conservative upper bound on local save, not desktop WidgetKit delivery.",
+  "uiBlocker": "XCTest timed out enabling automation before a method executed; /tmp/petal-task12-ui-runtime.log"
+}

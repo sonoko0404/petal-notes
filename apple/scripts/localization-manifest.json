@@ -1,0 +1,46 @@
+{
+  "catalogs": [
+    {
+      "path": "PetalChecklist/Resources/Localizable.xcstrings",
+      "table": "Localizable",
+      "target": "PetalChecklist",
+      "bundles": ["PetalChecklist"],
+      "requiredKeys": ["ui.petal_checklist.d92314", "ui.storage_retry", "privacy.body", "help.body"]
+    },
+    {
+      "path": "PetalChecklist/Resources/InfoPlist.xcstrings",
+      "table": "InfoPlist",
+      "target": "PetalChecklist",
+      "bundles": ["PetalChecklist"],
+      "requiredKeys": ["CFBundleDisplayName", "CFBundleName"]
+    },
+    {
+      "path": "PetalWidgets/Resources/Widgets.xcstrings",
+      "table": "Widgets",
+      "target": "PetalWidgets",
+      "bundles": ["PetalChecklist", "PetalWidgets"],
+      "requiredKeys": ["ui.petal_checklist.d92314", "ui.card.be3702", "ui.more_items"]
+    },
+    {
+      "path": "PetalWidgets/Resources/InfoPlist.xcstrings",
+      "table": "InfoPlist",
+      "target": "PetalWidgets",
+      "bundles": ["PetalWidgets"],
+      "requiredKeys": ["CFBundleDisplayName", "CFBundleName"]
+    },
+    {
+      "path": "Packages/PetalKit/Sources/PetalCore/Resources/Localizable.xcstrings",
+      "table": "Localizable",
+      "target": "PetalCore",
+      "bundles": ["PetalKit_PetalCore"],
+      "requiredKeys": ["ui.inbox.94835e", "ui.imported_reminder.a34a16", "ui.export_daily", "ui.export_reminder", "ui.export_disabled", "ui.export_snooze"]
+    },
+    {
+      "path": "Packages/PetalKit/Sources/PetalNotifications/Resources/Localizable.xcstrings",
+      "table": "Localizable",
+      "target": "PetalNotifications",
+      "bundles": ["PetalKit_PetalNotifications"],
+      "requiredKeys": ["ui.complete.143b27", "ui.snooze_5_minutes.2bd176", "ui.open_card.32bf59"]
+    }
+  ]
+}

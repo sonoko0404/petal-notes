@@ -1,0 +1,319 @@
+import Foundation
+import Observation
+import PetalCore
+import PetalPersistence
+import PetalActions
+import PetalNotifications
+
+enum SaveState: Equatable {
+    case saved
+    case saving
+    case failed(String)
+}
+
+enum EditorError: Error { case pendingSaveFailed, transitionInProgress }
+
+@MainActor @Observable
+final class CardEditorModel {
+    struct ReminderDraft: Equatable { var value: Reminder? }
+    private(set) var reminderDrafts: [LineID: ReminderDraft] = [:]
+    private(set) var reminderStates: [LineID: ReconcileResult] = [:]
+    private(set) var reminderErrors: Set<LineID> = []
+    private(set) var settingsOpenErrors: Set<LineID> = []
+    private(set) var isSavingReminder = false
+    @ObservationIgnored private let reminders: ReminderCoordinator?
+    @ObservationIgnored private let settingsOpener: NotificationSettingsOpener
+    let cardID: CardID
+    private let repository: any PetalRepository
+    private(set) var title = ""
+    private(set) var lines: [CardLine] = []
+    private(set) var status: CardStatus = .active
+    var isReadOnly: Bool { status == .trashed }
+    private(set) var newLineDraft = ""
+    private(set) var isAddingLine = false
+    private(set) var newLineError: String?
+    private(set) var isTransitionLocked = false
+    private(set) var unsavedText: [LineID: String] = [:]
+    private(set) var unsavedTitle: String?
+    private(set) var saveState: SaveState = .saved
+    private(set) var completionReferenceDate: Date
+    @ObservationIgnored private var completionCalendar: Calendar
+    @ObservationIgnored private let nowProvider: @MainActor () -> Date
+    @ObservationIgnored private let calendarProvider: @MainActor () -> Calendar
+    @ObservationIgnored private var debounceTask: Task<Void, Never>?
+    @ObservationIgnored private var activeSave: Task<Bool, Never>?
+    @ObservationIgnored private var submissionWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private var newLineRevision = 0
+
+    init(cardID: CardID, repository: any PetalRepository, reminders: ReminderCoordinator? = nil,
+         settingsOpener: NotificationSettingsOpener = .system,
+         now: @escaping @MainActor () -> Date = { .now },
+         calendar: @escaping @MainActor () -> Calendar = { .current }) {
+        self.cardID = cardID
+        self.repository = repository
+        self.reminders = reminders
+        self.settingsOpener = settingsOpener
+        nowProvider = now
+        calendarProvider = calendar
+        completionReferenceDate = now()
+        completionCalendar = calendar()
+    }
+
+    var incompleteLines: [CardLine] { lines.filter { !isEffectivelyCompleted($0) } }
+    var completedLines: [CardLine] { lines.filter(isEffectivelyCompleted) }
+    func isEffectivelyCompleted(_ line: CardLine) -> Bool {
+        CompletionPolicy.isCompleted(line, now: completionReferenceDate, calendar: completionCalendar)
+    }
+    func refreshTemporalState() {
+        completionReferenceDate = nowProvider()
+        completionCalendar = calendarProvider()
+    }
+
+    func editReminder(lineID: LineID, reminder: Reminder?) {
+        guard !isReadOnly, !isTransitionLocked, !isSavingReminder,
+              lines.contains(where: { $0.id == lineID && $0.kind == .todo }) else { return }
+        reminderDrafts[lineID] = ReminderDraft(value: reminder)
+    }
+
+    func saveReminder(lineID: LineID) async -> Bool {
+        guard !isSavingReminder, !isReadOnly, !isTransitionLocked,
+              let draft = reminderDrafts[lineID] else { return false }
+        isSavingReminder = true
+        defer { isSavingReminder = false }
+        do {
+            guard await flushPending() else { throw EditorError.pendingSaveFailed }
+            if let reminders { reminderStates[lineID] = try await reminders.save(lineID: lineID, reminder: draft.value) }
+            else {
+                _ = try await repository.setReminder(lineID: lineID, reminder: draft.value, now: .now)
+                reminderStates[lineID] = .permissionRequired
+            }
+            lines = try await repository.lines(cardID: cardID)
+            reminderDrafts.removeValue(forKey: lineID)
+            reminderErrors.remove(lineID)
+            return true
+        } catch { reminderErrors.insert(lineID); return false }
+    }
+
+    func openNotificationSettings(lineID: LineID) {
+        if settingsOpener.open() { settingsOpenErrors.remove(lineID) }
+        else { settingsOpenErrors.insert(lineID) }
+    }
+
+    func refreshReminderAuthorization() async {
+        guard let reminders else { return }
+        let result: ReconcileResult
+        do { result = try await reminders.reconcile(.foreground) }
+        catch { result = .schedulingFailed }
+        for line in lines where line.kind == .todo && line.reminder?.isEnabled == true {
+            reminderStates[line.id] = result
+        }
+    }
+
+    func setTransitionLocked(_ locked: Bool) { isTransitionLocked = locked }
+
+    func load() async throws {
+        refreshTemporalState()
+        guard let card = try await repository.card(id: cardID) else { throw RepositoryError.cardUnavailable }
+        title = card.title
+        status = card.status
+        lines = try await repository.lines(cardID: cardID)
+    }
+
+    func addLine(text: String) async throws {
+        guard !isTransitionLocked else { throw EditorError.transitionInProgress }
+        guard status != .trashed else { throw RepositoryError.cardUnavailable }
+        guard await flushPending() else { throw EditorError.pendingSaveFailed }
+        let line = try await repository.addLine(NewLineDraft(cardID: cardID, kind: .todo, text: text), now: .now)
+        lines.append(line)
+    }
+
+    func convert(lineID: LineID, to kind: LineKind) async throws {
+        guard !isTransitionLocked else { throw EditorError.transitionInProgress }
+        guard status != .trashed else { throw RepositoryError.cardUnavailable }
+        guard await flushPending() else { throw EditorError.pendingSaveFailed }
+        guard let line = lines.first(where: { $0.id == lineID }) else { throw RepositoryError.lineUnavailable }
+        let updated = try await repository.updateLine(LineMutation(id: lineID, kind: kind, text: line.text, reminder: line.reminder), now: .now)
+        replace(updated)
+    }
+
+    func delete(lineID: LineID) async throws {
+        guard !isTransitionLocked else { throw EditorError.transitionInProgress }
+        guard status != .trashed else { throw RepositoryError.cardUnavailable }
+        guard lines.contains(where: { $0.id == lineID }) else { throw RepositoryError.lineUnavailable }
+        guard await flushPending() else { throw EditorError.pendingSaveFailed }
+        try await repository.deleteLine(lineID: lineID, now: nowProvider())
+        lines.removeAll { $0.id == lineID }
+        unsavedText.removeValue(forKey: lineID)
+        reminderDrafts.removeValue(forKey: lineID)
+        reminderStates.removeValue(forKey: lineID)
+        reminderErrors.remove(lineID)
+        settingsOpenErrors.remove(lineID)
+    }
+
+    func setCompleted(lineID: LineID, completed: Bool) async throws {
+        guard !isTransitionLocked else { throw EditorError.transitionInProgress }
+        guard status != .trashed else { throw RepositoryError.cardUnavailable }
+        guard await flushPending() else { throw EditorError.pendingSaveFailed }
+        refreshTemporalState()
+        let now = completionReferenceDate
+        let calendar = completionCalendar
+        if let reminders, status == .active {
+            try await reminders.setCompleted(lineID: lineID, completed: completed, now: now, calendar: calendar)
+        } else if status == .active {
+            try await repository.setWidgetCompleted(lineID: lineID, completed: completed, now: now, calendar: calendar)
+        } else {
+            try await repository.setCompleted(lineID: lineID, completed: completed, now: now)
+        }
+        lines = try await repository.lines(cardID: cardID)
+        refreshTemporalState()
+    }
+
+    func reorder(orderedLineIDs: [LineID]) async throws {
+        guard !isTransitionLocked else { throw EditorError.transitionInProgress }
+        guard status != .trashed else { throw RepositoryError.cardUnavailable }
+        guard await flushPending() else { throw EditorError.pendingSaveFailed }
+        try await repository.reorder(cardID: cardID, orderedLineIDs: orderedLineIDs, now: .now)
+        lines = try await repository.lines(cardID: cardID)
+    }
+
+    func move(lineID: LineID, direction: MoveDirection) async throws {
+        guard let line = lines.first(where: { $0.id == lineID }) else { throw RepositoryError.lineUnavailable }
+        guard !isEffectivelyCompleted(line) else { return }
+        let section = incompleteLines
+        guard let index = section.firstIndex(where: { $0.id == lineID }) else { throw RepositoryError.lineUnavailable }
+        let destination = index + (direction == .up ? -1 : 1)
+        guard section.indices.contains(destination) else { return }
+        var ids = lines.map(\.id)
+        guard let sourceSlot = ids.firstIndex(of: lineID),
+              let destinationSlot = ids.firstIndex(of: section[destination].id) else { throw RepositoryError.lineUnavailable }
+        ids.swapAt(sourceSlot, destinationSlot)
+        try await reorder(orderedLineIDs: ids)
+    }
+
+    func reorderIncomplete(orderedLineIDs: [LineID]) async throws {
+        let current = incompleteLines.map(\.id)
+        guard orderedLineIDs.count == current.count, Set(orderedLineIDs) == Set(current) else {
+            throw RepositoryError.invalidOrder
+        }
+        var all = lines.map(\.id)
+        let slots = all.indices.filter { current.contains(all[$0]) }
+        for (slot, id) in zip(slots, orderedLineIDs) { all[slot] = id }
+        try await reorder(orderedLineIDs: all)
+    }
+
+    func editTitle(_ value: String) {
+        guard status != .trashed, !isTransitionLocked else { return }
+        title = value
+        unsavedTitle = value
+        scheduleSave()
+    }
+
+    func editText(lineID: LineID, text: String) {
+        guard status != .trashed, !isTransitionLocked else { return }
+        unsavedText[lineID] = text
+        scheduleSave()
+    }
+
+    func editNewLine(_ value: String) {
+        guard status != .trashed, !isTransitionLocked else { return }
+        newLineDraft = value
+        newLineRevision += 1
+    }
+
+    @discardableResult
+    func submitNewLine() async throws -> Bool {
+        guard !isTransitionLocked else { throw EditorError.transitionInProgress }
+        guard status != .trashed else { throw RepositoryError.cardUnavailable }
+        guard !isAddingLine else { return false }
+        let rawDraft = newLineDraft
+        let submittedRevision = newLineRevision
+        let text = rawDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        isAddingLine = true
+        defer {
+            isAddingLine = false
+            let waiters = submissionWaiters
+            submissionWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+        }
+        do {
+            guard await drainDrafts() else { throw EditorError.pendingSaveFailed }
+            let line = try await repository.addLine(NewLineDraft(cardID: cardID, kind: .todo, text: text), now: .now)
+            lines.append(line)
+            if newLineRevision == submittedRevision { newLineDraft = "" }
+            newLineError = nil
+            return true
+        } catch {
+            newLineError = PetalErrorCopy.message(error)
+            throw error
+        }
+    }
+
+    private func scheduleSave() {
+        debounceTask?.cancel()
+        debounceTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            _ = await self?.flushPending()
+        }
+    }
+
+    func flushPending() async -> Bool {
+        debounceTask?.cancel()
+        debounceTask = nil
+        if isAddingLine {
+            await withCheckedContinuation { submissionWaiters.append($0) }
+        }
+        let draftsSaved = await drainDrafts()
+        return draftsSaved && newLineError == nil
+    }
+
+    func retry() async -> Bool { await flushPending() }
+
+    private func drainDrafts() async -> Bool {
+        while true {
+            if let activeSave {
+                guard await activeSave.value else { return false }
+                continue
+            }
+            guard unsavedTitle != nil || !unsavedText.isEmpty else {
+                saveState = .saved
+                return true
+            }
+            let task = Task { [self] in
+                let result = await saveOnePass()
+                activeSave = nil
+                return result
+            }
+            activeSave = task
+            guard await task.value else { return false }
+        }
+    }
+
+    private func saveOnePass() async -> Bool {
+        saveState = .saving
+        do {
+            if let pendingTitle = unsavedTitle {
+                _ = try await repository.updateCardTitle(cardID, title: pendingTitle, now: .now)
+                if unsavedTitle == pendingTitle { unsavedTitle = nil }
+            }
+            let pendingLines = unsavedText
+            for (id, draft) in pendingLines {
+                guard let line = lines.first(where: { $0.id == id }) else { throw RepositoryError.lineUnavailable }
+                let updated = try await repository.updateLine(LineMutation(id: id, kind: line.kind, text: draft, reminder: line.reminder), now: .now)
+                replace(updated)
+                if unsavedText[id] == draft { unsavedText.removeValue(forKey: id) }
+            }
+            if unsavedTitle == nil && unsavedText.isEmpty { saveState = .saved }
+            return true
+        } catch {
+            saveState = .failed(PetalErrorCopy.message(error))
+            return false
+        }
+    }
+
+    private func replace(_ line: CardLine) {
+        guard let index = lines.firstIndex(where: { $0.id == line.id }) else { return }
+        lines[index] = line
+    }
+}

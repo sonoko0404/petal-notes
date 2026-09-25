@@ -1,0 +1,35 @@
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "PetalKit",
+    defaultLocalization: "en",
+    platforms: [.macOS(.v14)],
+    products: [
+        .library(name: "PetalCore", targets: ["PetalCore"]),
+        .library(name: "PetalPersistence", targets: ["PetalPersistence"]),
+        .library(name: "PetalSync", targets: ["PetalSync"]),
+        .library(name: "PetalNotifications", targets: ["PetalNotifications"]),
+        .library(name: "PetalImportExport", targets: ["PetalImportExport"]),
+        .library(name: "PetalDesignSystem", targets: ["PetalDesignSystem"]),
+        .library(name: "PetalActions", targets: ["PetalActions"]),
+        .library(name: "PetalTestSupport", targets: ["PetalTestSupport"]),
+    ],
+    targets: [
+        .target(name: "PetalCore", resources: [.process("Resources")]),
+        .target(name: "PetalPersistence", dependencies: ["PetalCore"], resources: [.copy("PrivacyInfo.xcprivacy")]),
+        .target(name: "PetalSync", dependencies: ["PetalCore", "PetalPersistence"]),
+        .target(name: "PetalNotifications", dependencies: ["PetalCore"], resources: [.process("Resources")]),
+        .target(name: "PetalImportExport", dependencies: ["PetalCore", "PetalPersistence"]),
+        .target(name: "PetalDesignSystem", dependencies: ["PetalCore"]),
+        .target(name: "PetalActions", dependencies: ["PetalCore", "PetalPersistence", "PetalSync", "PetalNotifications"], resources: [.copy("PrivacyInfo.xcprivacy")]),
+        .target(name: "PetalTestSupport", dependencies: ["PetalCore", "PetalPersistence"]),
+        .testTarget(name: "PetalCoreTests", dependencies: ["PetalCore"]),
+        .testTarget(name: "PetalPersistenceTests", dependencies: ["PetalPersistence", "PetalTestSupport"]),
+        .testTarget(name: "PetalSyncTests", dependencies: ["PetalSync", "PetalTestSupport"]),
+        .testTarget(name: "PetalActionsTests", dependencies: ["PetalActions", "PetalTestSupport"]),
+        .testTarget(name: "PetalNotificationsTests", dependencies: ["PetalNotifications", "PetalActions", "PetalTestSupport"]),
+        .testTarget(name: "PetalImportExportTests", dependencies: ["PetalImportExport", "PetalTestSupport"]),
+        .testTarget(name: "PetalDesignSystemTests", dependencies: ["PetalDesignSystem"]),
+    ]
+)
