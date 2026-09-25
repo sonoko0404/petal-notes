@@ -51,7 +51,7 @@
 - Create: `apple/scripts/test.sh`
 
 **Interfaces:**
-- Consumes: no Apple implementation; the existing WPF project remains untouched.
+- Consumes: no Apple implementation; the legacy WPF project is migration input only and is removed after the native product passes acceptance. Its SchemaVersion 1 import contract remains covered by fixtures.
 - Produces: Xcode targets `PetalChecklist`, `PetalWidgets`, `PetalChecklistTests`, `PetalChecklistUITests`; package products `PetalCore`, `PetalPersistence`, `PetalSync`, `PetalNotifications`, `PetalImportExport`, `PetalDesignSystem`, and test-only `PetalTestSupport`. Link `PetalTestSupport` only to test bundles.
 
 - [ ] **Step 1: Create the Xcode targets**

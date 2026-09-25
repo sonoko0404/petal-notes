@@ -1,6 +1,6 @@
 import Foundation
 
-/// Case-sensitive System.Text.Json names from StickyNotes/Models.cs.
+/// Case-sensitive System.Text.Json names from the retired Windows SchemaVersion 1 export.
 struct WindowsSchemaV1: Decodable {
     let SchemaVersion: Int
     let Notes: [Note]

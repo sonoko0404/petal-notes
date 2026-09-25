@@ -42,7 +42,7 @@ flowchart LR
 
 ## 3. 仓库布局
 
-保留现有 Windows WPF 版本不动，在仓库新增 `apple/`：
+仓库只维护原生 macOS 产品。旧 Windows WPF 客户端在迁移验收后移除；用于用户迁移的 SchemaVersion 1 解码器与去标识化测试夹具保留在 `PetalImportExport`。主要布局如下：
 
 ```text
 apple/
@@ -583,7 +583,7 @@ public enum ThemeID: String, Codable, CaseIterable, Sendable {
 
 ### ADR-001：不移植 WPF UI
 
-WPF、WinForms tray 和 Win32 窗口行为无法提交为原生 Apple Widget 产品。保留 Windows 源码作为业务行为参考，Apple 端原生重写。
+WPF、WinForms tray 和 Win32 窗口行为无法提交为原生 Apple Widget 产品，因此 Apple 端原生重写。迁移完成后不再保留旧客户端源码；只保留稳定的旧数据格式兼容层，避免把两个产品实现长期并行维护。
 
 ### ADR-002：Widget-first，不提供便签窗口
 
