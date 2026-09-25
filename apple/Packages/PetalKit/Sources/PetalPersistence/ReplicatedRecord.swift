@@ -56,10 +56,15 @@ public struct SyncTombstone: Codable, Sendable, Equatable {
     public let deletedAt: Date
     public let deviceID: String
     public let revision: Int64
+    /// Cleanup may outlive a newer restore. Preserve its original authority;
+    /// nil retains the envelope-generation semantics of existing records.
+    public let generation: ResetGeneration?
     public var expiresAt: Date { deletedAt.addingTimeInterval(2_592_000) }
-    public init(id: UUID, entity: Entity, entityID: UUID, deletedAt: Date, deviceID: String, revision: Int64) {
+    public init(id: UUID, entity: Entity, entityID: UUID, deletedAt: Date, deviceID: String, revision: Int64,
+                generation: ResetGeneration? = nil) {
         self.id = id; self.entity = entity; self.entityID = entityID
         self.deletedAt = deletedAt; self.deviceID = deviceID; self.revision = revision
+        self.generation = generation
     }
     public func prevents(modifiedAt: Date, deviceID: String, now: Date) -> Bool {
         expiresAt > now || deletedAt > modifiedAt || (deletedAt == modifiedAt && self.deviceID >= deviceID)

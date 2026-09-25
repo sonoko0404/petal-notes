@@ -4,13 +4,15 @@ public enum ReminderValidationError: Error, Sendable { case invalidRule }
 
 public extension Reminder {
     func validate() throws {
+        var dates = [snoozedUntil, lastDeliveredAt]
         switch rule {
         case .oneTime(let instant):
-            guard instant.timeIntervalSince1970.isFinite else { throw ReminderValidationError.invalidRule }
+            dates.append(instant)
         case .daily(let minute, _):
             guard (0...1439).contains(minute) else { throw ReminderValidationError.invalidRule }
         }
-        if let snoozedUntil, !snoozedUntil.timeIntervalSince1970.isFinite { throw ReminderValidationError.invalidRule }
+        do { try DomainStructure.validateDates(dates) }
+        catch { throw ReminderValidationError.invalidRule }
     }
 }
 

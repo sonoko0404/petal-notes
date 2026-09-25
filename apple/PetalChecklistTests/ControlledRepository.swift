@@ -81,6 +81,7 @@ final class ControlledRepository: PetalRepository {
         }
         return try await base.captureTodoLines(cardID: cardID, texts: texts, now: now)
     }
+    func deleteLine(lineID: LineID, now: Date) async throws { try await base.deleteLine(lineID: lineID, now: now) }
     func updateLine(_ mutation: LineMutation, now: Date) async throws -> CardLine { try await base.updateLine(mutation, now: now) }
     func setReminder(lineID: LineID, reminder: Reminder?, now: Date) async throws -> CardLine {
         try await base.setReminder(lineID: lineID, reminder: reminder, now: now)
@@ -100,6 +101,7 @@ final class ControlledRepository: PetalRepository {
     func purgeExpiredTrash(now: Date) async throws { try await base.purgeExpiredTrash(now: now) }
     func captureConflict(cardID: CardID, lineID: LineID?, losingPayload: Data, now: Date) async throws -> ConflictArtifact { try await base.captureConflict(cardID: cardID, lineID: lineID, losingPayload: losingPayload, now: now) }
     func conflicts() async throws -> [ConflictArtifact] { try await base.conflicts() }
+    func recoverConflict(id: UUID, now: Date) async throws -> CardID { try await base.recoverConflict(id: id, now: now) }
     func purgeExpiredConflicts(now: Date) async throws { try await base.purgeExpiredConflicts(now: now) }
     func deleteAllData(resetGeneration: UUID, now: Date) async throws { try await base.deleteAllData(resetGeneration: resetGeneration, now: now) }
     func resetGeneration() async throws -> UUID? { try await base.resetGeneration() }

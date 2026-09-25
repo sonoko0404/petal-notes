@@ -28,3 +28,20 @@ import PetalImportExport
     #expect(restored.settings.notificationSoundEnabled)
     #expect(try PetalBackupCodec.encode(restored) == data)
 }
+
+@Test func conflictCopiesEnterPortableBackupsOnlyAfterPersistentRecovery() async throws {
+    let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+    let card = try await repository.createCard(title: "Original", now: transferNow)
+    var losing = try await repository.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Current value"), now: transferNow)
+    losing.text = "Recoverable alternate"
+    let artifact = try await repository.captureConflict(cardID: card.id, lineID: losing.id,
+        losingPayload: JSONEncoder().encode(losing), now: transferNow)
+    let before = try PetalBackupCodec.decode(PetalBackupCodec.encode(PetalBackup(
+        snapshot: await repository.transferSnapshot(), settings: TransferSettings())))
+    #expect(!before.snapshot.lines.contains { $0.text == "Recoverable alternate" })
+    let recovered = try await repository.recoverConflict(id: artifact.id, now: transferNow)
+    let after = try PetalBackupCodec.decode(PetalBackupCodec.encode(PetalBackup(
+        snapshot: await repository.transferSnapshot(), settings: TransferSettings())))
+    #expect(after.snapshot.lines.contains { $0.cardID == recovered && $0.text == "Recoverable alternate" })
+    #expect(try await repository.conflicts().first?.losingPayload == artifact.losingPayload)
+}

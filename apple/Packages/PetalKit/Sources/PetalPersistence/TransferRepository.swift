@@ -7,7 +7,9 @@ public struct TransferSnapshot: Sendable, Equatable {
     public init(cards: [Card], lines: [CardLine]) { self.cards = cards; self.lines = lines }
     public func validate() throws {
         let ids = Set(cards.map(\.id))
+        let allIDs = cards.map { $0.id.rawValue } + lines.map { $0.id.rawValue }
         guard ids.count == cards.count, Set(lines.map(\.id)).count == lines.count,
+              Set(allIDs).count == allIDs.count,
               cards.filter(\.isInbox).count <= 1,
               lines.allSatisfy({ ids.contains($0.cardID) }) else {
             throw TransferRepositoryError.invalidSnapshot

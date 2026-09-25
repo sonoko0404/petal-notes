@@ -12,12 +12,14 @@ import PetalDesignSystem
 struct RootView: View {
     let capture: QuickCaptureAppController
     let notificationBroker: NotificationResponseBroker
+    let terminationCoordinator: ApplicationTerminationCoordinator
     @Environment(\.openWindow) private var openWindow
     @State private var router: AppRouter?
     @State private var startupError: String?
     @State private var pendingInboxMove: PendingInboxMove?
     @State private var recordingShortcut = false
     @State private var reminders: AppReminderRuntime?
+    @State private var commitRuntime: AppRepositoryCommitRuntime?
     @State private var syncSettings: SyncSettingsModel?
     @State private var dataTransfer: DataTransferModel?
     @State private var resetModel: ResetSettingsModel?
@@ -84,7 +86,14 @@ struct RootView: View {
                             Picker("ui.typeface.3a8c10", selection: $typeface) {
                                 Text("ui.system.6725e7").tag("standard"); Text("ui.rounded.0a62cd").tag("rounded"); Text("ui.serif.1b5e74").tag("serif")
                             }
-                            if let syncSettings { SyncSettingsView(model: syncSettings, resetModel: resetModel) }
+                            if let syncSettings {
+                                SyncSettingsView(model: syncSettings, resetModel: resetModel) { id in
+                                    Task {
+                                        await router.show(.allCards)
+                                        await router.select(id)
+                                    }
+                                }
+                            }
                             if let dataTransfer { DataTransferView(model: dataTransfer) }
                             SupportSettingsView()
                             DiagnosticsExportView()
@@ -193,6 +202,16 @@ struct RootView: View {
                 let runtime = AppReminderRuntime(coordinator: shared.reminders)
                 reminders = runtime
                 let navigation = AppRouter(repository: opened.repository, library: model, reminders: runtime.coordinator)
+                let repositoryCommits = AppRepositoryCommitRuntime(
+                    router: navigation,
+                    reconcileReminders: { await runtime.reconcile(.localMutation) },
+                    reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() }
+                )
+                repositoryCommits.startCrossProcessObservation()
+                commitRuntime = repositoryCommits
+                terminationCoordinator.prepare = { [weak navigation] in
+                    await navigation?.prepareClose() ?? true
+                }
                 refresh.router = navigation
                 let settings = SyncSettingsModel(repository: opened.repository, coordinator: shared.sync)
                 syncSettings = settings
@@ -248,19 +267,39 @@ struct RootView: View {
             Task { await syncSettings?.sync(.push) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .petalRepositoryDidCommit).receive(on: DispatchQueue.main)) { _ in
-            Task { await reminders?.reconcile(.localMutation); await syncSettings?.sync(.localMutation) }
+            Task {
+                await commitRuntime?.handleCommit()
+                await syncSettings?.sync(.localMutation)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await reminders?.reconcile(.foreground); await syncSettings?.sync(.foreground) }
+            Task {
+                router?.refreshTemporalState()
+                WidgetCenter.shared.reloadAllTimelines()
+                await reminders?.reconcile(.foreground)
+                await syncSettings?.sync(.foreground)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
-            Task { await reminders?.reconcile(.dateChange) }
+            Task {
+                router?.refreshTemporalState()
+                WidgetCenter.shared.reloadAllTimelines()
+                await reminders?.reconcile(.dateChange)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSSystemClockDidChange)) { _ in
-            Task { await reminders?.reconcile(.dateChange) }
+            Task {
+                router?.refreshTemporalState()
+                WidgetCenter.shared.reloadAllTimelines()
+                await reminders?.reconcile(.dateChange)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
-            Task { await reminders?.reconcile(.timeZoneChange) }
+            Task {
+                router?.refreshTemporalState()
+                WidgetCenter.shared.reloadAllTimelines()
+                await reminders?.reconcile(.timeZoneChange)
+            }
         }
     }
 

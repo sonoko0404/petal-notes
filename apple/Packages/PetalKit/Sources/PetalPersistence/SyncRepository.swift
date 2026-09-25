@@ -8,15 +8,21 @@ public enum ReplacementDeliveryStatus: String, Codable, Sendable {
 /// All synchronization operations exchange values; stored models remain actor-confined.
 public protocol PetalSyncRepository: PetalRepository {
     func syncSnapshot() async throws -> SyncSnapshot
+    func widgetSyncStatus() async throws -> WidgetSyncStatus
     func acknowledgeSync(_ sent: [OutboxChange], token: Data?, expectedEpoch: UInt64?) async throws
     func setSyncEnabled(_ enabled: Bool) async throws
     func applyInbound(_ records: [ReplicatedRecord], token: Data?, now: Date, expectedEpoch: UInt64?) async throws
     func takeUnpresentedConflicts(now: Date) async throws -> [ConflictArtifact]
     func recordSyncState(_ state: SyncState, retryAt: Date?, expectedEpoch: UInt64?) async throws
     func finishResetCleanup() async throws
+    func finishErasureScan(generation: UUID, token: Data?, expectedEpoch: UInt64?) async throws
 }
 
 public extension PetalSyncRepository {
+    func widgetSyncStatus() async throws -> WidgetSyncStatus {
+        let value = try await syncSnapshot()
+        return WidgetSyncStatus(enabled: value.enabled, state: value.state, generation: value.generation)
+    }
     func acknowledgeSync(_ sent: [OutboxChange]) async throws { try await acknowledgeSync(sent, token: nil) }
     func acknowledgeSync(_ sent: [OutboxChange], token: Data?) async throws {
         try await acknowledgeSync(sent, token: token, expectedEpoch: nil)
@@ -27,6 +33,13 @@ public extension PetalSyncRepository {
     func recordSyncState(_ state: SyncState, retryAt: Date?) async throws {
         try await recordSyncState(state, retryAt: retryAt, expectedEpoch: nil)
     }
+}
+
+/// Widget reads need only the reset fence and privacy-safe status, never outbox payloads.
+public struct WidgetSyncStatus: Sendable {
+    public let enabled: Bool
+    public let state: SyncState
+    public let generation: ResetGeneration
 }
 
 public struct SyncSnapshot: Sendable {
@@ -40,9 +53,13 @@ public struct SyncSnapshot: Sendable {
     public let preferenceEpoch: UInt64
     public var replacementExpectedInboxID: UUID? = nil
     public var replacementDeliveryStatus: ReplacementDeliveryStatus? = nil
+    /// A durable full-zone read is required before this reset can forget cloud identities.
+    public var erasureScanGeneration: UUID? = nil
 }
 
 struct LocalSyncMetadata: Codable {
+    var erasureScanGeneration: UUID?
+    var erasureFence: ResetGeneration?
     // Local installation state: never included in SyncSnapshot, Cloud records, or backups.
     var onboardingCompleted: Bool?
     var replacementPlaceholderID: UUID?

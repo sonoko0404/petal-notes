@@ -106,12 +106,13 @@ struct WidgetSnapshotCacheTests {
         #expect(jsonFiles.count == 32)
     }
 
-    @Test func unavailableCacheCannotFallBackToProcessMemory() async throws {
+    @Test func unavailableCacheFenceCannotExposeUnfencedReadsOrProcessMemory() async throws {
         let fixture = try await InMemoryPetalRepository.cardWithTodos(count: 1, now: now)
         let source = OnceRepository(repository: fixture.repository)
         let reader = WidgetSnapshotReader(cache: WidgetSnapshotCache(directory: { throw RepositoryError.appGroupUnavailable })) { try await source.open() }
         let first = await reader.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
-        #expect(first.visibleLines.count == 1)
+        #expect(first.cardState == .persistenceError)
+        #expect(first.visibleLines.isEmpty)
         let failed = await reader.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
         #expect(failed.cardState == .persistenceError)
         #expect(failed.visibleLines.isEmpty)
@@ -143,7 +144,7 @@ struct WidgetSnapshotCacheTests {
         let freshReader = WidgetSnapshotReader(cache: WidgetSnapshotCache(directory: directory)) { fixture.repository }
         _ = await freshReader.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
         // A token acquired before metadata loss/corruption must never regain validity.
-        try? await cache.store(oldValue, token: oldToken, size: .medium, now: now, calendar: calendar)
+        _ = try? await cache.store(oldValue, token: oldToken, size: .medium, now: now, calendar: calendar)
         let recovered = await offline.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
         #expect(recovered.visibleLines.map(\.text) == ["Fresh"])
     }

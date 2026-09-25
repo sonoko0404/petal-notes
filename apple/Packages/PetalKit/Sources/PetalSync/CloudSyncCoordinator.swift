@@ -85,7 +85,7 @@ public actor CloudSyncCoordinator {
             }
             try await publish(.syncing, retryAt: nil, operation: operation, preferenceEpoch: preferenceEpoch)
             try check(operation)
-            let inbound = try await transport.fetchChanges(after: snapshot.token)
+            let inbound = try await transport.fetchChanges(after: snapshot.erasureScanGeneration == nil ? snapshot.token : nil)
             try check(operation)
             guard try await repository.syncSnapshot().enabled else { return }
             try check(operation)
@@ -93,6 +93,14 @@ public actor CloudSyncCoordinator {
             try check(operation)
             let merged = try await repository.syncSnapshot()
             try check(operation)
+            if let generation = snapshot.erasureScanGeneration, merged.erasureScanGeneration == generation {
+                try await repository.finishErasureScan(generation: generation, token: inbound.token, expectedEpoch: preferenceEpoch)
+                try check(operation)
+            } else if merged.erasureScanGeneration != nil {
+                // The reset was only just discovered in an incremental page.
+                // Preserve its nil checkpoint and rescan before sending cleanup.
+                pendingReason = .retry
+            }
             if merged.generation > snapshot.generation {
                 try await afterReset()
                 try check(operation)

@@ -78,8 +78,10 @@ struct EngineEventBuffer: Sendable {
     }
     func prepareSend(_ values: [ReplicatedRecord]) throws -> PreparedEngineSend {
         var result = PreparedEngineSend(records: [], deletions: [:], excludedDeletionIDs: [])
+        var identities: Set<CKRecord.ID> = []
         for value in values {
             let record = try prepare(value)
+            guard identities.insert(record.recordID).inserted else { throw CloudTransportError.invalidRecord }
             result.records.append(record)
             // Remove legacy queued bare-ID deletes from a resumed engine state.
             // Permanent deletion is now a conditional, content-free entity save.

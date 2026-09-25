@@ -35,6 +35,7 @@ public protocol NotificationCenterAdapter: Sendable {
     func authorization() async -> AuthorizationState
     func requestAuthorization() async throws -> AuthorizationState
     func pending() async throws -> [ReminderRequest]
+    func deliveredRequests() async throws -> [ReminderRequest]
     func add(_ request: ReminderRequest) async throws
     func remove(_ ids: [String]) async
     func removeDelivered(_ ids: [String]) async

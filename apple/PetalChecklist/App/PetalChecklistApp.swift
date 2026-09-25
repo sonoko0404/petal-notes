@@ -11,14 +11,35 @@ struct PetalChecklistApp: App {
     @State private var capture = QuickCaptureAppController()
 
     var body: some Scene {
-        Window("ui.petal_checklist.d92314", id: "main") { RootView(capture: capture, notificationBroker: appDelegate.notificationBroker) }
+        Window("ui.petal_checklist.d92314", id: "main") {
+            RootView(capture: capture, notificationBroker: appDelegate.notificationBroker,
+                     terminationCoordinator: appDelegate.terminationCoordinator)
+        }
             .defaultSize(width: 960, height: 640)
+    }
+}
+
+@MainActor
+final class ApplicationTerminationCoordinator {
+    var prepare: (@MainActor () async -> Bool)?
+    private var requestTask: Task<Void, Never>?
+
+    func request(reply: @escaping @MainActor (Bool) -> Void) -> NSApplication.TerminateReply {
+        guard let prepare else { return .terminateNow }
+        guard requestTask == nil else { return .terminateLater }
+        requestTask = Task { @MainActor [weak self] in
+            let allowed = await prepare()
+            reply(allowed)
+            self?.requestTask = nil
+        }
+        return .terminateLater
     }
 }
 
 @MainActor
 final class PetalAppDelegate: NSObject, NSApplicationDelegate {
     let notificationBroker = NotificationResponseBroker()
+    let terminationCoordinator = ApplicationTerminationCoordinator()
     private var notificationDelegate: NotificationResponseDelegate?
     override init() {
         super.init()
@@ -35,5 +56,8 @@ final class PetalAppDelegate: NSObject, NSApplicationDelegate {
     }
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
         NotificationCenter.default.post(name: .petalCloudPushReceived, object: nil)
+    }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        terminationCoordinator.request { sender.reply(toApplicationShouldTerminate: $0) }
     }
 }

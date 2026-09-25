@@ -36,17 +36,37 @@ final class CardEditorModel {
     private(set) var unsavedText: [LineID: String] = [:]
     private(set) var unsavedTitle: String?
     private(set) var saveState: SaveState = .saved
+    private(set) var completionReferenceDate: Date
+    @ObservationIgnored private var completionCalendar: Calendar
+    @ObservationIgnored private let nowProvider: @MainActor () -> Date
+    @ObservationIgnored private let calendarProvider: @MainActor () -> Calendar
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
     @ObservationIgnored private var activeSave: Task<Bool, Never>?
     @ObservationIgnored private var submissionWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private var newLineRevision = 0
 
     init(cardID: CardID, repository: any PetalRepository, reminders: ReminderCoordinator? = nil,
-         settingsOpener: NotificationSettingsOpener = .system) {
+         settingsOpener: NotificationSettingsOpener = .system,
+         now: @escaping @MainActor () -> Date = { .now },
+         calendar: @escaping @MainActor () -> Calendar = { .current }) {
         self.cardID = cardID
         self.repository = repository
         self.reminders = reminders
         self.settingsOpener = settingsOpener
+        nowProvider = now
+        calendarProvider = calendar
+        completionReferenceDate = now()
+        completionCalendar = calendar()
+    }
+
+    var incompleteLines: [CardLine] { lines.filter { !isEffectivelyCompleted($0) } }
+    var completedLines: [CardLine] { lines.filter(isEffectivelyCompleted) }
+    func isEffectivelyCompleted(_ line: CardLine) -> Bool {
+        CompletionPolicy.isCompleted(line, now: completionReferenceDate, calendar: completionCalendar)
+    }
+    func refreshTemporalState() {
+        completionReferenceDate = nowProvider()
+        completionCalendar = calendarProvider()
     }
 
     func editReminder(lineID: LineID, reminder: Reminder?) {
@@ -92,6 +112,7 @@ final class CardEditorModel {
     func setTransitionLocked(_ locked: Bool) { isTransitionLocked = locked }
 
     func load() async throws {
+        refreshTemporalState()
         guard let card = try await repository.card(id: cardID) else { throw RepositoryError.cardUnavailable }
         title = card.title
         status = card.status
@@ -115,16 +136,36 @@ final class CardEditorModel {
         replace(updated)
     }
 
+    func delete(lineID: LineID) async throws {
+        guard !isTransitionLocked else { throw EditorError.transitionInProgress }
+        guard status != .trashed else { throw RepositoryError.cardUnavailable }
+        guard lines.contains(where: { $0.id == lineID }) else { throw RepositoryError.lineUnavailable }
+        guard await flushPending() else { throw EditorError.pendingSaveFailed }
+        try await repository.deleteLine(lineID: lineID, now: nowProvider())
+        lines.removeAll { $0.id == lineID }
+        unsavedText.removeValue(forKey: lineID)
+        reminderDrafts.removeValue(forKey: lineID)
+        reminderStates.removeValue(forKey: lineID)
+        reminderErrors.remove(lineID)
+        settingsOpenErrors.remove(lineID)
+    }
+
     func setCompleted(lineID: LineID, completed: Bool) async throws {
         guard !isTransitionLocked else { throw EditorError.transitionInProgress }
         guard status != .trashed else { throw RepositoryError.cardUnavailable }
         guard await flushPending() else { throw EditorError.pendingSaveFailed }
+        refreshTemporalState()
+        let now = completionReferenceDate
+        let calendar = completionCalendar
         if let reminders, status == .active {
-            try await reminders.setCompleted(lineID: lineID, completed: completed, now: .now, calendar: .current)
+            try await reminders.setCompleted(lineID: lineID, completed: completed, now: now, calendar: calendar)
+        } else if status == .active {
+            try await repository.setWidgetCompleted(lineID: lineID, completed: completed, now: now, calendar: calendar)
         } else {
-            try await repository.setCompleted(lineID: lineID, completed: completed, now: .now)
+            try await repository.setCompleted(lineID: lineID, completed: completed, now: now)
         }
         lines = try await repository.lines(cardID: cardID)
+        refreshTemporalState()
     }
 
     func reorder(orderedLineIDs: [LineID]) async throws {
@@ -136,12 +177,28 @@ final class CardEditorModel {
     }
 
     func move(lineID: LineID, direction: MoveDirection) async throws {
-        guard let index = lines.firstIndex(where: { $0.id == lineID }) else { throw RepositoryError.lineUnavailable }
+        guard let line = lines.first(where: { $0.id == lineID }) else { throw RepositoryError.lineUnavailable }
+        guard !isEffectivelyCompleted(line) else { return }
+        let section = incompleteLines
+        guard let index = section.firstIndex(where: { $0.id == lineID }) else { throw RepositoryError.lineUnavailable }
         let destination = index + (direction == .up ? -1 : 1)
-        guard lines.indices.contains(destination) else { return }
+        guard section.indices.contains(destination) else { return }
         var ids = lines.map(\.id)
-        ids.swapAt(index, destination)
+        guard let sourceSlot = ids.firstIndex(of: lineID),
+              let destinationSlot = ids.firstIndex(of: section[destination].id) else { throw RepositoryError.lineUnavailable }
+        ids.swapAt(sourceSlot, destinationSlot)
         try await reorder(orderedLineIDs: ids)
+    }
+
+    func reorderIncomplete(orderedLineIDs: [LineID]) async throws {
+        let current = incompleteLines.map(\.id)
+        guard orderedLineIDs.count == current.count, Set(orderedLineIDs) == Set(current) else {
+            throw RepositoryError.invalidOrder
+        }
+        var all = lines.map(\.id)
+        let slots = all.indices.filter { current.contains(all[$0]) }
+        for (slot, id) in zip(slots, orderedLineIDs) { all[slot] = id }
+        try await reorder(orderedLineIDs: all)
     }
 
     func editTitle(_ value: String) {

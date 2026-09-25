@@ -29,6 +29,9 @@ public actor SystemNotificationCenter: NotificationCenterAdapter {
     public func pending() async throws -> [ReminderRequest] {
         await center.pendingNotificationRequests().compactMap(Self.decode)
     }
+    public func deliveredRequests() async throws -> [ReminderRequest] {
+        await center.deliveredNotifications().compactMap { Self.decode($0.request) }
+    }
     public func add(_ request: ReminderRequest) async throws {
         if let existing = await center.pendingNotificationRequests().first(where: { $0.identifier == request.id }),
            Self.decode(existing)?.isPetalOwned != true { throw ReminderSchedulingError.identifierCollision }

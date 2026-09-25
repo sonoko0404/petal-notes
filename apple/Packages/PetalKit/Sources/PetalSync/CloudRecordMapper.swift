@@ -28,7 +28,10 @@ public enum CloudRecordMapper {
                 case .conflict: return nil
                 }
             }
-            return OutboundCloudChange(record: ReplicatedRecord(payload: payload, generation: snapshot.generation,
+            let generation: ResetGeneration
+            if case .tombstone(let value) = payload { generation = value.generation ?? snapshot.generation }
+            else { generation = snapshot.generation }
+            return OutboundCloudChange(record: ReplicatedRecord(payload: payload, generation: generation,
                 replacementInboxID: snapshot.replacementExpectedInboxID), journal: ordered)
         }.sorted { $0.journal.last!.sequence < $1.journal.last!.sequence }
     }

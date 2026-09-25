@@ -24,6 +24,7 @@ final class AppRouter {
     @ObservationIgnored private var latestRequest = 0
     @ObservationIgnored private var pendingTransitions = 0
     @ObservationIgnored private var closing = false
+    @ObservationIgnored private var closeDrain: Task<Bool, Never>?
     @ObservationIgnored private var retryAction: (@MainActor () async -> Void)?
 
     init(repository: any PetalRepository, library: CardLibraryModel, reminders: ReminderCoordinator? = nil) {
@@ -206,6 +207,10 @@ final class AppRouter {
         }, retry: { [weak self] in await self?.syncDidCommit() }, supersedesUserIntent: false)
     }
 
+    func refreshTemporalState() {
+        for model in editors.values { model.refreshTemporalState() }
+    }
+
     func retryError() async {
         let retry = retryAction
         errorMessage = nil
@@ -219,13 +224,20 @@ final class AppRouter {
     }
 
     func prepareClose() async -> Bool {
-        guard !closing else { return false }
+        if let closeDrain { return await closeDrain.value }
         closing = true
         isTransitioning = true
         editor?.setTransitionLocked(true)
-        await transitionTail?.value
-        let saved = await editor?.flushPending() ?? true
+        let pendingTransition = transitionTail
+        let pendingEditor = editor
+        let drain = Task { @MainActor in
+            await pendingTransition?.value
+            return await pendingEditor?.flushPending() ?? true
+        }
+        closeDrain = drain
+        let saved = await drain.value
         if !saved {
+            closeDrain = nil
             closing = false
             isTransitioning = false
             editor?.setTransitionLocked(false)
@@ -234,6 +246,7 @@ final class AppRouter {
     }
 
     func closeRequestDidEnd() {
+        closeDrain = nil
         closing = false
         isTransitioning = pendingTransitions > 0
         if !isTransitioning {

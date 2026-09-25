@@ -30,6 +30,7 @@ public struct SwiftDataPetalRepository: PetalSyncRepository, PetalTransferReposi
         try await store.captureTodoLines(cardID: cardID, texts: texts, now: now)
     }
     public func updateLine(_ mutation: LineMutation, now: Date) async throws -> CardLine { try await store.updateLine(mutation, now: now) }
+    public func deleteLine(lineID: LineID, now: Date) async throws { try await store.deleteLine(lineID: lineID, now: now) }
     public func setReminder(lineID: LineID, reminder: Reminder?, now: Date) async throws -> CardLine {
         try await store.setReminder(lineID: lineID, reminder: reminder, now: now)
     }
@@ -55,12 +56,14 @@ public struct SwiftDataPetalRepository: PetalSyncRepository, PetalTransferReposi
         try await store.captureConflict(cardID: cardID, lineID: lineID, losingPayload: losingPayload, now: now)
     }
     public func conflicts() async throws -> [ConflictArtifact] { try await store.conflicts() }
+    public func recoverConflict(id: UUID, now: Date) async throws -> CardID { try await store.recoverConflict(id: id, now: now) }
     public func purgeExpiredConflicts(now: Date) async throws { try await store.purgeExpiredConflicts(now: now) }
     public func deleteAllData(resetGeneration: UUID, now: Date) async throws {
         try await store.deleteAllData(resetGeneration: resetGeneration, now: now)
     }
     public func resetGeneration() async throws -> UUID? { try await store.resetGeneration() }
     public func syncSnapshot() async throws -> SyncSnapshot { try await store.syncSnapshot() }
+    public func widgetSyncStatus() async throws -> WidgetSyncStatus { try await store.widgetSyncStatus() }
     public func acknowledgeSync(_ sent: [OutboxChange], token: Data? = nil, expectedEpoch: UInt64? = nil) async throws {
         try await store.acknowledgeSync(sent, token: token, expectedEpoch: expectedEpoch)
     }
@@ -75,6 +78,9 @@ public struct SwiftDataPetalRepository: PetalSyncRepository, PetalTransferReposi
         try await store.recordSyncState(state, retryAt: retryAt, expectedEpoch: expectedEpoch)
     }
     public func finishResetCleanup() async throws { try await store.finishResetCleanup() }
+    public func finishErasureScan(generation: UUID, token: Data?, expectedEpoch: UInt64?) async throws {
+        try await store.finishErasureScan(generation: generation, token: token, expectedEpoch: expectedEpoch)
+    }
     public func transferSnapshot() async throws -> TransferSnapshot { try await store.transferSnapshot() }
     public func importCards(_ cards: [ImportedCard], now: Date,
         backup: @Sendable (TransferSnapshot) throws -> Void) async throws -> Int {
@@ -90,6 +96,7 @@ private actor RepositoryStore {
     private var faultInjector: RepositoryFaultInjector = .none
     private var coordinator = StoreCoordinator()
     private var transactionContext: ModelContext?
+    private var resetFenceInstalled = false
     // Fresh read contexts prevent stale registered objects after another process saves.
     private var context: ModelContext { transactionContext ?? ModelContext(modelContainer) }
 
@@ -124,13 +131,12 @@ private actor RepositoryStore {
             try backup(before)
             var fingerprints = Set(try context.fetch(FetchDescriptor<PetalSchemaV1.StoredImportFingerprint>()).map(\.fingerprint))
             var count = 0
-            var cardIDs = Set(before.cards.map(\.id))
-            var lineIDs = Set(before.lines.map(\.id))
+            var identities = Set(before.cards.map { $0.id.rawValue } + before.lines.map { $0.id.rawValue })
             for entry in entries where !fingerprints.contains(entry.fingerprint) {
                 let sourceKey = "windows-note:" + entry.sourceNoteID.uuidString.lowercased()
                 guard !fingerprints.contains(sourceKey) else { continue }
-                guard cardIDs.insert(entry.card.id).inserted,
-                      entry.lines.allSatisfy({ lineIDs.insert($0.id).inserted && $0.cardID == entry.card.id }) else {
+                guard identities.insert(entry.card.id.rawValue).inserted,
+                      entry.lines.allSatisfy({ identities.insert($0.id.rawValue).inserted && $0.cardID == entry.card.id }) else {
                     throw TransferRepositoryError.invalidSnapshot
                 }
                 var card = entry.card
@@ -169,7 +175,8 @@ private actor RepositoryStore {
             let session = ModelContext(modelContainer)
             session.autosaveEnabled = false
             transactionContext = session
-            defer { transactionContext = nil }
+            resetFenceInstalled = false
+            defer { transactionContext = nil; resetFenceInstalled = false }
             do {
                 let result = try body()
                 if faultInjector == .failBeforeSave { throw RepositoryError.injectedFailure }
@@ -179,10 +186,15 @@ private actor RepositoryStore {
                 }
                 let changed = session.hasChanges
                 try session.save()
-                if notify && changed { NotificationCenter.default.post(name: .petalRepositoryDidCommit, object: nil) }
+                if notify && changed { coordinator.publishCommit() }
                 return result
             } catch {
                 session.rollback()
+                if resetFenceInstalled, let generation = try? syncMetadata().generation.id {
+                    // A failed reset must not leave an expected future generation
+                    // permanently blocking fresh reads of the retained data.
+                    try? coordinator.installWidgetResetFence(generation: generation)
+                }
                 throw error
             }
         }
@@ -267,6 +279,7 @@ private actor RepositoryStore {
             // The durable flag was set with the reset transaction. Removing the
             // recovery file is idempotent if a crash occurs before clearing it.
             try coordinator.removeMigrationRecoverySnapshot()
+            try coordinator.eraseWidgetSnapshots()
             metadata.resetCleanupPending = false
             try syncMetadataRow().payload = JSONEncoder().encode(metadata)
         }
@@ -274,18 +287,40 @@ private actor RepositoryStore {
 
     func syncSnapshot() throws -> SyncSnapshot {
         try coordinator.withLock {
-            SyncSnapshot(enabled: try syncMetadata().enabled, changes: try pendingOutbox(), token: try syncMetadata().token,
-                         tombstones: try syncMetadata().tombstones, generation: try syncMetadata().generation,
-                         state: try syncMetadata().state, retryAt: try syncMetadata().retryAt,
-                         preferenceEpoch: try syncMetadata().preferenceEpoch ?? 0,
-                         replacementExpectedInboxID: try syncMetadata().replacementExpectedInboxID,
-                         replacementDeliveryStatus: try syncMetadata().replacementDeliveryStatus)
+            let metadata = try syncMetadata()
+            return SyncSnapshot(enabled: metadata.enabled, changes: try pendingOutbox(), token: metadata.token,
+                         tombstones: metadata.tombstones, generation: metadata.generation,
+                         state: metadata.state, retryAt: metadata.retryAt,
+                         preferenceEpoch: metadata.preferenceEpoch ?? 0,
+                         replacementExpectedInboxID: metadata.replacementExpectedInboxID,
+                         replacementDeliveryStatus: metadata.replacementDeliveryStatus,
+                         erasureScanGeneration: metadata.erasureScanGeneration)
+        }
+    }
+
+    func widgetSyncStatus() throws -> WidgetSyncStatus {
+        try coordinator.withLock {
+            let metadata = try syncMetadata()
+            return WidgetSyncStatus(enabled: metadata.enabled, state: metadata.state, generation: metadata.generation)
         }
     }
 
     private func validateSyncEpoch(_ expected: UInt64?, _ metadata: LocalSyncMetadata) throws {
         if let expected, !metadata.enabled || expected != (metadata.preferenceEpoch ?? 0) {
             throw RepositoryError.syncSessionSuperseded
+        }
+    }
+
+    func finishErasureScan(generation: UUID, token: Data?, expectedEpoch: UInt64?) throws {
+        try transaction(notify: false) {
+            var metadata = try syncMetadata()
+            try validateSyncEpoch(expectedEpoch, metadata)
+            guard metadata.erasureScanGeneration == generation else { return }
+            // All discovered redactions already share the committed inbound
+            // transaction. A send failure or crash retains their journal work.
+            metadata.erasureScanGeneration = nil
+            metadata.token = token
+            try syncMetadataRow().payload = JSONEncoder().encode(metadata)
         }
     }
 
@@ -329,15 +364,43 @@ private actor RepositoryStore {
             var metadata = try syncMetadata()
             try validateSyncEpoch(expectedEpoch, metadata)
             var invalid: [(ReplicatedRecord.Payload, StructuralIssue)] = []
+            let candidates = (metadata.unresolvedLines ?? []) + records
+            let cardIDs = Set(try cards(scope: .all).map { $0.id.rawValue }).union(candidates.compactMap {
+                if case .card(let card) = $0.payload { return card.id.rawValue }
+                if case .tombstone(let value) = $0.payload, value.entity == .card { return value.entityID }
+                return nil
+            })
+            let lineIDs = Set(try context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).map(\.id)).union(candidates.compactMap {
+                if case .line(let line) = $0.payload { return line.id.rawValue }
+                if case .tombstone(let value) = $0.payload, value.entity == .line { return value.entityID }
+                return nil
+            })
             let received = ((metadata.unresolvedLines ?? []) + records).filter { record in
                 do {
                     try DomainStructure.validateDates([record.generation.modifiedAt])
+                    if record.generation != .initial && DomainStructure.reservedRecordIDs.contains(record.generation.id) {
+                        throw StructuralIssue.identity
+                    }
                     switch record.payload {
-                    case .card(let card): try DomainStructure.validate(card)
-                    case .line(let line): try DomainStructure.validate(line)
+                    case .card(let card):
+                        try DomainStructure.validate(card)
+                        if lineIDs.contains(card.id.rawValue) { throw StructuralIssue.identity }
+                    case .line(let line):
+                        try DomainStructure.validate(line)
+                        if cardIDs.contains(line.id.rawValue) { throw StructuralIssue.identity }
                     case .invalidInbound: throw StructuralIssue.undecodableRecord
-                    case .tombstone(let value): try DomainStructure.validateDates([value.deletedAt])
-                    case .userState(let value): try DomainStructure.validateDates([value.modifiedAt])
+                    case .tombstone(let value):
+                        guard !DomainStructure.reservedRecordIDs.contains(value.entityID) else { throw StructuralIssue.identity }
+                        guard value.generation == nil || value.generation == record.generation else { throw StructuralIssue.identity }
+                        if value.entity == .card ? lineIDs.contains(value.entityID) : cardIDs.contains(value.entityID) {
+                            throw StructuralIssue.identity
+                        }
+                        try DomainStructure.validateDates([value.deletedAt])
+                    case .userState(let value):
+                        guard !DomainStructure.reservedRecordIDs.contains(value.inboxCardID.rawValue),
+                              value.resetGeneration == record.generation.id else { throw StructuralIssue.identity }
+                        guard (value.revision ?? 0) >= 0, (value.revision ?? 0) < Int64.max else { throw StructuralIssue.ordering }
+                        try DomainStructure.validateDates([value.modifiedAt])
                     }
                 } catch {
                     invalid.append((record.payload, (error as? StructuralIssue) ?? .undecodableRecord))
@@ -364,7 +427,15 @@ private actor RepositoryStore {
             }
             // A reset also cleans up stale records first discovered after the
             // local reset. The cleanup survives another offline failure.
-            for record in received where record.generation < metadata.generation && !metadata.generation.isReplacement {
+            let erasureFence = metadata.erasureFence ?? (metadata.generation.isReplacement ? .initial : metadata.generation)
+            let replacingIDs = Set(received.filter { $0.generation == metadata.generation }.compactMap { record -> UUID? in
+                switch record.payload {
+                case .card(let card): card.id.rawValue
+                case .line(let line): line.id.rawValue
+                default: nil
+                }
+            })
+            for record in received where record.generation < erasureFence {
                 let entity: SyncTombstone.Entity
                 let id: UUID
                 switch record.payload {
@@ -372,9 +443,16 @@ private actor RepositoryStore {
                 case .line(let line): entity = .line; id = line.id.rawValue
                 default: continue
                 }
+                // A later restored copy at the same UUID is authoritative.
+                if metadata.generation > erasureFence,
+                   (try replacingIDs.contains(id) || cards(scope: .all).contains { $0.id.rawValue == id }
+                    || context.fetch(FetchDescriptor<PetalSchemaV1.StoredLine>()).contains { $0.id == id }) { continue }
                 if !metadata.tombstones.contains(where: { $0.entity == entity && $0.entityID == id }) {
                     metadata.tombstones.append(SyncTombstone(id: UUID(), entity: entity, entityID: id,
-                        deletedAt: metadata.generation.modifiedAt, deviceID: metadata.generation.deviceID, revision: 1))
+                        deletedAt: erasureFence.modifiedAt, deviceID: erasureFence.deviceID, revision: 1,
+                        generation: erasureFence))
+                }
+                if try !pendingOutbox().contains(where: { $0.entityID == id && $0.operation == .delete }) {
                     try appendChange(entity: entity == .card ? .card : .line, id: id, payload: Data(), now: now, operation: .delete)
                 }
             }
@@ -384,6 +462,17 @@ private actor RepositoryStore {
                 }
                 return rank($0) < rank($1)
             }
+            // A replacement may arrive after its declaration and after an old
+            // cleanup was queued/acknowledged. Its generation, not delivery
+            // order or the 30-day retention window, owns the restored identity.
+            let superseded = metadata.tombstones.filter {
+                $0.generation.map { $0 < metadata.generation } == true && replacingIDs.contains($0.entityID)
+            }
+            for fence in superseded {
+                try discardSupersededDeletion(entity: fence.entity == .card ? .card : .line, id: fence.entityID)
+            }
+            let supersededIDs = Set(superseded.map(\.id))
+            metadata.tombstones.removeAll { supersededIDs.contains($0.id) }
             if metadata.generation.isReplacement {
                 for record in records {
                     if case .userState(let state) = record.payload {
@@ -457,6 +546,7 @@ private actor RepositoryStore {
                     }
                     if metadata.tombstones.contains(where: {
                         ($0.entity == .line && $0.entityID == line.id.rawValue || $0.entity == .card && $0.entityID == line.cardID.rawValue)
+                            && !($0.generation.map { $0 < metadata.generation } ?? false)
                             && $0.prevents(modifiedAt: line.modifiedAt, deviceID: line.deviceID, now: now)
                     }) { continue }
                     guard try cards(scope: .all).contains(where: { $0.id == line.cardID }) else {
@@ -490,11 +580,17 @@ private actor RepositoryStore {
                   try JSONEncoder().encode(metadata.unresolvedLines).count <= 4_194_304 else {
                 throw RepositoryError.unresolvedInboundCapacityExceeded
             }
+            // Keep the applied checkpoint atomic with its page; the independent
+            // durable erasureScanGeneration overrides this token until full scan.
             metadata.token = token
             let preferredInbox = try reconcileReplacement(&metadata, now: now)
             try syncMetadataRow().payload = JSONEncoder().encode(metadata)
             try repairInbox(now: now, preferred: preferredInbox, replicateChanges: !metadata.generation.isReplacement)
         }
+        // A Widget process can apply a cloud page too. Its foreground App has
+        // no reference to that process's lifecycle coordinator; wake it by the
+        // same content-free signal, without recursively requesting local sync.
+        if !records.isEmpty { coordinator.publishCrossProcessCommit() }
     }
 
     private func reconcileReplacement(_ metadata: inout LocalSyncMetadata, now: Date) throws -> CardID? {
@@ -546,6 +642,7 @@ private actor RepositoryStore {
     private func publishCurrentInbox(_ inbox: CardID, replacementMode: Bool, now: Date) throws {
         var metadata = try syncMetadata()
         let previous = metadata.authoritativeUserState?.resolved(in: metadata.generation)
+        guard (previous?.revision ?? 0) < Int64.max - 1 else { throw RepositoryError.invalidOrder }
         let state = UserStateChange(resetGeneration: metadata.generation.id, inboxCardID: inbox, replacementMode: replacementMode,
             revision: (previous?.revision ?? 0) + 1,
             modifiedAt: max(now, (previous?.modifiedAt ?? metadata.generation.modifiedAt).addingTimeInterval(0.001)), deviceID: try deviceID())
@@ -660,6 +757,7 @@ private actor RepositoryStore {
     private func appendChange(entity: OutboxChange.Entity, id: UUID, payload: Data, now: Date,
                               operation: OutboxChange.Operation = .upsert) throws {
         let state = try userState()
+        guard state.nextOutboxSequence < Int64.max else { throw RepositoryError.invalidOrder }
         state.nextOutboxSequence += 1
         context.insert(try PetalSchemaV1.StoredOutboxChange(OutboxChange(
             id: UUID(), entity: entity, entityID: id, operation: operation, payload: payload,
@@ -680,7 +778,7 @@ private actor RepositoryStore {
             guard try cards(scope: .all).contains(where: { $0.id == draft.cardID && $0.status != .trashed }) else {
                 throw RepositoryError.cardUnavailable
             }
-            let index = try (lines(cardID: draft.cardID).map(\.sortIndex).max() ?? -1) + 1
+            let index = try insertionIndex(cardID: draft.cardID, count: 1, now: now)
             return try insertLine(draft, sortIndex: index, now: now)
         }
     }
@@ -691,22 +789,42 @@ private actor RepositoryStore {
                 throw RepositoryError.cardUnavailable
             }
             let nonempty = texts.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            var index = try (lines(cardID: cardID).map(\.sortIndex).max() ?? -1) + 1
-            return try nonempty.map { text in
-                defer { index += 1 }
-                return try insertLine(NewLineDraft(cardID: cardID, kind: .todo, text: text), sortIndex: index, now: now)
+            let index = try insertionIndex(cardID: cardID, count: nonempty.count, now: now)
+            return try nonempty.enumerated().map { offset, text in
+                let (position, overflow) = index.addingReportingOverflow(Int64(offset))
+                guard !overflow else { throw RepositoryError.invalidOrder }
+                return try insertLine(NewLineDraft(cardID: cardID, kind: .todo, text: text), sortIndex: position, now: now)
             }
         }
+    }
+
+    private func insertionIndex(cardID: CardID, count: Int, now: Date) throws -> Int64 {
+        let existing = try lines(cardID: cardID)
+        let maximum = existing.map(\.sortIndex).max() ?? -1
+        let (end, overflow) = maximum.addingReportingOverflow(Int64(count))
+        if !overflow, maximum >= -1, end < Int64.max - 1,
+           existing.allSatisfy({ $0.sortIndex >= 0 }) { return maximum + 1 }
+        // Reindex in the insertion transaction, preserving deterministic manual
+        // order. Any failure rolls back both reindexing and all inserted rows.
+        for (index, line) in existing.enumerated() where line.sortIndex != Int64(index) {
+            var value = line; value.sortIndex = Int64(index)
+            try saveLine(value, stored: storedLine(line.id), now: now)
+        }
+        return Int64(existing.count)
     }
 
     private func insertLine(_ draft: NewLineDraft, sortIndex: Int64, now: Date) throws -> CardLine {
         try draft.reminder?.validate()
         let completed = draft.kind == .todo && draft.isCompleted
-        let value = CardLine(id: LineID(rawValue: UUID()), cardID: draft.cardID, kind: draft.kind,
+        var value = CardLine(id: LineID(rawValue: UUID()), cardID: draft.cardID, kind: draft.kind,
                              text: draft.text, sortIndex: sortIndex, isCompleted: completed,
                              completedAt: completed ? now : nil, lastDailyCompletionKey: nil,
                              dailyStreak: 0, reminder: draft.kind == .todo ? draft.reminder : nil,
                              createdAt: now, modifiedAt: now, deletedAt: nil, revision: 1, deviceID: try deviceID())
+        if completed, case .daily = value.reminder?.rule {
+            value.lastDailyCompletionKey = CompletionPolicy.localDayKey(for: now, calendar: .current)
+            value.dailyStreak = 1
+        }
         let stored = try PetalSchemaV1.StoredLine(value)
         context.insert(stored)
         try appendChange(entity: .line, id: stored.id, payload: stored.payload, now: now)
@@ -727,6 +845,7 @@ private actor RepositoryStore {
 
     private func saveLine(_ value: CardLine, stored: PetalSchemaV1.StoredLine, now: Date) throws {
         var updated = value
+        guard updated.revision < Int64.max - 1 else { throw RepositoryError.invalidOrder }
         updated.revision += 1
         updated.modifiedAt = now
         updated.deviceID = try deviceID()
@@ -753,6 +872,14 @@ private actor RepositoryStore {
         }
     }
 
+    func deleteLine(lineID: LineID, now: Date) throws {
+        try transaction {
+            let stored = try storedLine(lineID)
+            try appendDeletion(entity: .line, id: stored.id, now: now)
+            context.delete(stored)
+        }
+    }
+
     func setWidgetCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) throws {
         try transaction {
             let stored = try storedLine(lineID)
@@ -761,10 +888,7 @@ private actor RepositoryStore {
             guard try cards(scope: .active).contains(where: { $0.id == value.cardID }) else {
                 throw RepositoryError.cardUnavailable
             }
-            var effectiveCompleted = value.isCompleted
-            if case .daily = value.reminder?.rule, let date = value.completedAt,
-               !calendar.isDate(date, inSameDayAs: now) { effectiveCompleted = false }
-            guard applyCompletion(&value, completed: completed, effectiveCompleted: effectiveCompleted, now: now) else { return }
+            guard applyCompletion(&value, completed: completed, now: now, calendar: calendar) else { return }
             try saveLine(value, stored: stored, now: now)
         }
     }
@@ -787,18 +911,37 @@ private actor RepositoryStore {
             let stored = try storedLine(lineID)
             var value = try stored.value()
             guard value.kind == .todo else { throw RepositoryError.lineUnavailable }
-            guard applyCompletion(&value, completed: completed, effectiveCompleted: value.isCompleted, now: now) else { return }
+            guard applyCompletion(&value, completed: completed, now: now, calendar: .current) else { return }
             try saveLine(value, stored: stored, now: now)
         }
     }
 
     /// Both completion commands use this inside their existing transaction, so
     /// snooze cancellation and completion share one revision/outbox payload.
-    private func applyCompletion(_ value: inout CardLine, completed: Bool, effectiveCompleted: Bool, now: Date) -> Bool {
+    private func applyCompletion(_ value: inout CardLine, completed: Bool, now: Date, calendar: Calendar) -> Bool {
+        let effectiveCompleted = CompletionPolicy.isCompleted(value, now: now, calendar: calendar)
         let stateChanged = effectiveCompleted != completed
         let clearsSnooze = completed && value.reminder?.snoozedUntil != nil
         guard stateChanged || clearsSnooze else { return false }
         if stateChanged {
+            if case .daily = value.reminder?.rule {
+                let today = CompletionPolicy.localDayKey(for: now, calendar: calendar)
+                let yesterday = calendar.date(byAdding: .day, value: -1, to: now).map {
+                    CompletionPolicy.localDayKey(for: $0, calendar: calendar)
+                }
+                if completed {
+                    let previous = value.completedAt.map { CompletionPolicy.localDayKey(for: $0, calendar: calendar) }
+                        ?? value.lastDailyCompletionKey
+                    let continuous = previous != nil && previous == yesterday
+                    value.dailyStreak = continuous ? (value.dailyStreak < Int.max ? value.dailyStreak + 1 : Int.max) : 1
+                    value.lastDailyCompletionKey = today
+                } else {
+                    // Undo removes today's credit. A consecutive streak keeps
+                    // yesterday's credit, allowing a same-day redo without inflation.
+                    value.dailyStreak = max(0, value.dailyStreak - 1)
+                    value.lastDailyCompletionKey = value.dailyStreak > 0 ? yesterday : nil
+                }
+            }
             value.isCompleted = completed
             value.completedAt = completed ? now : nil
         }
@@ -834,6 +977,7 @@ private actor RepositoryStore {
 
     private func saveCard(_ value: Card, stored: PetalSchemaV1.StoredCard, now: Date) throws {
         var updated = value
+        guard updated.revision < Int64.max - 1 else { throw RepositoryError.invalidOrder }
         updated.revision += 1
         updated.modifiedAt = now
         updated.deviceID = try deviceID()
@@ -941,6 +1085,42 @@ private actor RepositoryStore {
                 ? $0.id.uuidString < $1.id.uuidString : $0.capturedAt < $1.capturedAt }
     }
 
+    func recoverConflict(id: UUID, now: Date) throws -> CardID {
+        try transaction {
+            guard let row = try context.fetch(FetchDescriptor<PetalSchemaV1.StoredConflictArtifact>()).first(where: { $0.id == id }),
+                  var artifact = try? row.value(), artifact.expiresAt > now else { throw RepositoryError.lineUnavailable }
+            if let recovered = artifact.recoveredCardID, try cards(scope: .all).contains(where: { $0.id == recovered }) {
+                return recovered
+            }
+            let decoder = JSONDecoder()
+            let copy: Card
+            if artifact.lineID != nil {
+                let source = try decoder.decode(CardLine.self, from: artifact.losingPayload)
+                try DomainStructure.validate(source)
+                let title = try cards(scope: .all).first(where: { $0.id == artifact.cardID })?.title
+                    ?? PetalStrings.text("ui.inbox.94835e")
+                copy = try insertCard(title: title, isInbox: false, now: now)
+                let line = CardLine(id: LineID(rawValue: UUID()), cardID: copy.id, kind: source.kind, text: source.text,
+                    sortIndex: 0, isCompleted: source.isCompleted, completedAt: source.completedAt,
+                    lastDailyCompletionKey: source.lastDailyCompletionKey, dailyStreak: source.dailyStreak,
+                    reminder: source.reminder, createdAt: now, modifiedAt: now, deletedAt: nil, revision: 1, deviceID: try deviceID())
+                let stored = try PetalSchemaV1.StoredLine(line)
+                context.insert(stored)
+                try appendChange(entity: .line, id: stored.id, payload: stored.payload, now: now)
+            } else {
+                let source = try decoder.decode(Card.self, from: artifact.losingPayload)
+                try DomainStructure.validate(source)
+                var card = try insertCard(title: source.title, isInbox: false, now: now)
+                card.themeID = source.themeID
+                try saveCard(card, stored: storedCard(card.id), now: now)
+                copy = card
+            }
+            artifact.recoveredCardID = copy.id
+            row.payload = try JSONEncoder().encode(artifact)
+            return copy.id
+        }
+    }
+
     func purgeExpiredConflicts(now: Date) throws {
         try transaction {
             for stored in try context.fetch(FetchDescriptor<PetalSchemaV1.StoredConflictArtifact>(
@@ -959,6 +1139,7 @@ private actor RepositoryStore {
     private func appendDeletion(entity: OutboxChange.Entity, id: UUID, now: Date) throws {
         if entity == .card || entity == .line {
             var metadata = try syncMetadata()
+            guard try userState().nextOutboxSequence < Int64.max else { throw RepositoryError.invalidOrder }
             metadata.tombstones.removeAll { $0.entityID == id }
             metadata.tombstones.append(SyncTombstone(id: UUID(), entity: entity == .card ? .card : .line,
                 entityID: id, deletedAt: now, deviceID: try deviceID(), revision: try userState().nextOutboxSequence + 1))
@@ -995,6 +1176,10 @@ private actor RepositoryStore {
     }
 
     private func resetContents(generation: ResetGeneration, now: Date, replacement: TransferSnapshot? = nil) throws {
+            // Install the content-free cross-process fence before mutation. A
+            // failed transaction may discard cached display, never canonical data.
+            try coordinator.installWidgetResetFence(generation: generation.id)
+            resetFenceInstalled = true
             let oldCards = try cards(scope: .all)
             let waitingLines = try (syncMetadata().unresolvedLines ?? []).compactMap { record -> CardLine? in
                 if case .line(let line) = record.payload { return line }; return nil
@@ -1015,6 +1200,15 @@ private actor RepositoryStore {
             }
             var metadata = try syncMetadata()
             metadata.generation = generation
+            if !generation.isReplacement {
+                metadata.erasureFence = generation
+                metadata.erasureScanGeneration = generation.id
+                metadata.token = nil
+            } else if metadata.erasureScanGeneration != nil {
+                // A restore before the pending erasure completes must not
+                // discard the obligation to inspect older generations.
+                metadata.token = nil
+            }
             metadata.onboardingCompleted = true
             metadata.unresolvedLines = nil
             metadata.resetCleanupPending = true
@@ -1061,16 +1255,22 @@ private actor RepositoryStore {
                 }
                 return
             }
-            var tombstones = Dictionary(uniqueKeysWithValues: metadata.tombstones.map { ($0.entityID, $0) })
+            // Defensive normalization for development stores written before
+            // inbound identity validation; malformed duplicates must never trap.
+            var tombstones: [UUID: SyncTombstone] = [:]
+            for value in metadata.tombstones {
+                if let previous = tombstones[value.entityID], previous.deletedAt > value.deletedAt { continue }
+                tombstones[value.entityID] = value
+            }
             for card in oldCards {
                 tombstones[card.id.rawValue] = SyncTombstone(id: tombstones[card.id.rawValue]?.id ?? UUID(),
                     entity: .card, entityID: card.id.rawValue, deletedAt: generation.modifiedAt,
-                    deviceID: generation.deviceID, revision: card.revision + 1)
+                    deviceID: generation.deviceID, revision: card.revision == .max ? .max : card.revision + 1)
             }
             for line in oldLines {
                 tombstones[line.id.rawValue] = SyncTombstone(id: tombstones[line.id.rawValue]?.id ?? UUID(),
                     entity: .line, entityID: line.id.rawValue, deletedAt: generation.modifiedAt,
-                    deviceID: generation.deviceID, revision: line.revision + 1)
+                    deviceID: generation.deviceID, revision: line.revision == .max ? .max : line.revision + 1)
             }
             metadata.tombstones = tombstones.values.sorted { $0.id.uuidString < $1.id.uuidString }
             try syncMetadataRow().payload = JSONEncoder().encode(metadata)

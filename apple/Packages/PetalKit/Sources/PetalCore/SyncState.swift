@@ -9,10 +9,12 @@ public struct ConflictArtifact: Identifiable, Codable, Sendable, Equatable {
     public let expiresAt: Date
     public var hasBeenPresented: Bool
     public let inboundIssue: StructuralIssue?
+    public var recoveredCardID: CardID?
 
     public init(
         id: UUID, cardID: CardID, lineID: LineID?, losingPayload: Data,
-        capturedAt: Date, expiresAt: Date, hasBeenPresented: Bool, inboundIssue: StructuralIssue? = nil
+        capturedAt: Date, expiresAt: Date, hasBeenPresented: Bool, inboundIssue: StructuralIssue? = nil,
+        recoveredCardID: CardID? = nil
     ) {
         self.id = id
         self.cardID = cardID
@@ -22,6 +24,7 @@ public struct ConflictArtifact: Identifiable, Codable, Sendable, Equatable {
         self.expiresAt = expiresAt
         self.hasBeenPresented = hasBeenPresented
         self.inboundIssue = inboundIssue
+        self.recoveredCardID = recoveredCardID
     }
 }
 

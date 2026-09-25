@@ -38,6 +38,7 @@ actor FakeNotificationCenter: NotificationCenterAdapter {
         }
         return requests
     }
+    func deliveredRequests() -> [ReminderRequest] { requests.filter { delivered.contains($0.id) } }
     func add(_ request: ReminderRequest) throws {
         if failAdd { throw Failure.scheduling }
         requests.removeAll { $0.id == request.id }; requests.append(request); additions += 1

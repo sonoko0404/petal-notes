@@ -26,7 +26,8 @@ public enum ModelContainerFactory {
             throw RepositoryError.appGroupUnavailable
         }
         let directory = root.appendingPathComponent("Library/Application Support/Petal", isDirectory: true)
-        let coordinator = StoreCoordinator(lockURL: directory.appendingPathComponent("Petal.lock"))
+        let coordinator = StoreCoordinator(lockURL: directory.appendingPathComponent("Petal.lock"),
+            cacheURL: root.appendingPathComponent("Library/Caches/Petal/WidgetSnapshots", isDirectory: true))
         try coordinator.validateSchema()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return try coordinator.withLock {
@@ -65,7 +66,29 @@ public enum ModelContainerFactory {
 final class StoreCoordinator: Sendable {
     private let lock = NSLock()
     private let lockURL: URL?
-    init(lockURL: URL? = nil) { self.lockURL = lockURL }
+    private let cacheURL: URL?
+    init(lockURL: URL? = nil, cacheURL: URL? = nil) { self.lockURL = lockURL; self.cacheURL = cacheURL }
+
+    func installWidgetResetFence(generation: UUID) throws {
+        if let cacheURL { try WidgetSnapshotCache.installResetFence(at: cacheURL, generation: generation) }
+    }
+
+    func eraseWidgetSnapshots() throws {
+        if let cacheURL { try WidgetSnapshotCache.eraseSnapshots(at: cacheURL) }
+    }
+
+    func publishCommit() {
+        NotificationCenter.default.post(name: .petalRepositoryDidCommit, object: nil)
+        publishCrossProcessCommit()
+    }
+
+    func publishCrossProcessCommit() {
+        guard lockURL != nil else { return }
+        // Wake the foreground app after Widget/intent writes. The signal carries
+        // no content; consumers always re-read the shared repository.
+        DistributedNotificationCenter.default().postNotificationName(.petalRepositoryDidCommit,
+            object: String(ProcessInfo.processInfo.processIdentifier), userInfo: nil, deliverImmediately: true)
+    }
 
     func removeMigrationRecoverySnapshot() throws {
         guard let directory = lockURL?.deletingLastPathComponent() else { return }

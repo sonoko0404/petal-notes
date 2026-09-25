@@ -89,3 +89,71 @@ final class AppReminderRuntime {
     weak var router: AppRouter?
     func refresh() async { await router?.syncDidCommit() }
 }
+
+/// Keeps repository commit side effects local-first and independent of CloudKit.
+/// The repository's distributed signal is intentionally content-free; the app
+/// re-reads its shared store only after safely draining the active editor.
+@MainActor
+final class AppRepositoryCommitRuntime {
+    private weak var router: AppRouter?
+    private let reconcileReminders: @MainActor () async -> Void
+    private let reloadWidgets: @MainActor () async -> Void
+    private var isRefreshing = false
+    private var refreshPending = false
+    private var refreshWaiters: [CheckedContinuation<Void, Never>] = []
+    private var distributedObserver: NSObjectProtocol?
+    private let processIdentifier = String(ProcessInfo.processInfo.processIdentifier)
+
+    init(router: AppRouter,
+         reconcileReminders: @escaping @MainActor () async -> Void,
+         reloadWidgets: @escaping @MainActor () async -> Void) {
+        self.router = router
+        self.reconcileReminders = reconcileReminders
+        self.reloadWidgets = reloadWidgets
+    }
+
+    func handleCommit() async {
+        refreshPending = true
+        if isRefreshing {
+            await withCheckedContinuation { refreshWaiters.append($0) }
+            return
+        }
+        isRefreshing = true
+        while refreshPending {
+            refreshPending = false
+            await router?.syncDidCommit()
+            await reconcileReminders()
+            await reloadWidgets()
+        }
+        isRefreshing = false
+        let waiters = refreshWaiters
+        refreshWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func handleCrossProcessCommit(senderProcessIdentifier: String?) async {
+        guard senderProcessIdentifier != processIdentifier else { return }
+        await handleCommit()
+    }
+
+    func startCrossProcessObservation() {
+        guard distributedObserver == nil else { return }
+        distributedObserver = DistributedNotificationCenter.default().addObserver(
+            forName: .petalRepositoryDidCommit,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let sender = notification.object as? String
+            Task { @MainActor [weak self] in
+                await self?.handleCrossProcessCommit(senderProcessIdentifier: sender)
+            }
+        }
+    }
+
+    func stopCrossProcessObservation() {
+        guard let distributedObserver else { return }
+        DistributedNotificationCenter.default().removeObserver(distributedObserver)
+        self.distributedObserver = nil
+    }
+
+}

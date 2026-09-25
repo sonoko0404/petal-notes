@@ -238,6 +238,159 @@ final class AppRouterTests: XCTestCase {
         XCTAssertEqual(persistedTitle, "Reopened")
         XCTAssertEqual(router.selectedCardID, second.id)
     }
+
+    func testApplicationTerminationDefersUntilInflightEditorSaveSucceeds() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Before", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(card.id)
+        repository.titleGate.pauseNext()
+        router.editor?.editTitle("Saved before quit")
+        let coordinator = ApplicationTerminationCoordinator()
+        coordinator.prepare = { await router.prepareClose() }
+        var reply: Bool?
+
+        XCTAssertEqual(coordinator.request { reply = $0 }, .terminateLater)
+        await repository.titleGate.waitUntilEntered()
+        XCTAssertNil(reply)
+        repository.titleGate.resume()
+        while reply == nil { await Task.yield() }
+
+        XCTAssertEqual(reply, true)
+        let savedCard = try await base.card(id: card.id)
+        XCTAssertEqual(savedCard?.title, "Saved before quit")
+    }
+
+    func testApplicationTerminationCancelsWhenEditorSaveFailsAndKeepsDraft() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Before", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(card.id)
+        repository.failNextTitle = true
+        router.editor?.editTitle("Keep this draft")
+        let coordinator = ApplicationTerminationCoordinator()
+        coordinator.prepare = { await router.prepareClose() }
+        var reply: Bool?
+
+        XCTAssertEqual(coordinator.request { reply = $0 }, .terminateLater)
+        while reply == nil { await Task.yield() }
+
+        XCTAssertEqual(reply, false)
+        XCTAssertEqual(router.editor?.unsavedTitle, "Keep this draft")
+        XCTAssertFalse(router.isTransitioning)
+        let unchangedCard = try await base.card(id: card.id)
+        XCTAssertEqual(unchangedCard?.title, "Before")
+    }
+
+    func testWindowCloseAndApplicationTerminationShareOneSaveDrain() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Before", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(card.id)
+        repository.titleGate.pauseNext()
+        router.editor?.editTitle("One drain")
+        let windowClose = Task { await router.prepareClose() }
+        await repository.titleGate.waitUntilEntered()
+        let applicationQuit = Task { await router.prepareClose() }
+        repository.titleGate.resume()
+
+        let windowAllowed = await windowClose.value
+        let quitAllowed = await applicationQuit.value
+        XCTAssertTrue(windowAllowed)
+        XCTAssertTrue(quitAllowed)
+        let savedCard = try await base.card(id: card.id)
+        XCTAssertEqual(savedCard?.title, "One drain")
+    }
+
+    func testRepositoryCommitRefreshesWidgetChangeAfterSavingDraftAndInvalidatesLocally() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Before", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(card.id)
+        router.editor?.editTitle("Local draft")
+        _ = try await base.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "From Widget"), now: .now)
+        var reminderInvalidations = 0
+        var widgetReloads = 0
+        let runtime = AppRepositoryCommitRuntime(router: router,
+            reconcileReminders: { reminderInvalidations += 1 },
+            reloadWidgets: { widgetReloads += 1 })
+
+        await runtime.handleCommit()
+
+        XCTAssertEqual(router.editor?.title, "Local draft")
+        XCTAssertEqual(router.editor?.lines.map(\.text), ["From Widget"])
+        XCTAssertNil(router.editor?.unsavedTitle)
+        XCTAssertEqual(reminderInvalidations, 1)
+        XCTAssertEqual(widgetReloads, 1)
+    }
+
+    func testRepositoryCommitFailureKeepsDraftWhileStillInvalidatingWidgetsAndReminders() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Before", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(card.id)
+        router.editor?.editTitle("Keep draft")
+        repository.failNextTitle = true
+        var reminderInvalidations = 0
+        var widgetReloads = 0
+        let runtime = AppRepositoryCommitRuntime(router: router,
+            reconcileReminders: { reminderInvalidations += 1 },
+            reloadWidgets: { widgetReloads += 1 })
+
+        await runtime.handleCommit()
+
+        XCTAssertEqual(router.editor?.unsavedTitle, "Keep draft")
+        XCTAssertEqual(router.editor?.title, "Keep draft")
+        XCTAssertNotNil(router.errorMessage)
+        XCTAssertEqual(reminderInvalidations, 1)
+        XCTAssertEqual(widgetReloads, 1)
+    }
+
+    func testRepositoryCommitDuringHeldReconcileTriggersFreshStoreRead() async throws {
+        let base = try await InMemoryPetalRepository.bootstrapped()
+        let card = try await base.createCard(title: "Commit queue", now: .now)
+        let repository = ControlledRepository(base: base)
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        await router.select(card.id)
+        _ = try await base.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "First"), now: .now)
+        let reconcileGate = RepositoryGate()
+        reconcileGate.pauseNext()
+        let runtime = AppRepositoryCommitRuntime(router: router,
+            reconcileReminders: { await reconcileGate.enter() },
+            reloadWidgets: {})
+
+        let firstCommit = Task { await runtime.handleCommit() }
+        await reconcileGate.waitUntilEntered()
+        _ = try await base.addLine(NewLineDraft(cardID: card.id, kind: .todo, text: "Second"), now: .now)
+        let secondCommit = Task { await runtime.handleCommit() }
+        await Task.yield()
+        reconcileGate.resume()
+        await firstCommit.value
+        await secondCommit.value
+
+        XCTAssertEqual(router.editor?.lines.map(\.text), ["First", "Second"])
+    }
+
+    func testCrossProcessCommitIgnoresCurrentProcessAndHandlesForeignProcess() async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped()
+        let router = AppRouter(repository: repository, library: CardLibraryModel(repository: repository))
+        var invalidations = 0
+        let runtime = AppRepositoryCommitRuntime(router: router,
+            reconcileReminders: { invalidations += 1 },
+            reloadWidgets: {})
+
+        await runtime.handleCrossProcessCommit(
+            senderProcessIdentifier: String(ProcessInfo.processInfo.processIdentifier))
+        XCTAssertEqual(invalidations, 0)
+
+        await runtime.handleCrossProcessCommit(senderProcessIdentifier: "foreign-process")
+        XCTAssertEqual(invalidations, 1)
+    }
 }
 
 private actor SettingsCloudTransport: CloudTransport {
@@ -268,15 +421,20 @@ private actor SettingsCloudTransport: CloudTransport {
         await sync.sync(reason: .push)
         XCTAssertEqual(model.state, .failed(.quotaExceeded))
     }
-    func testSettingsToggleStatusConflictOnceAndResetEntryDoesNotDelete() async throws {
+    func testSettingsKeepsPersistentConflictRecoveryAfterNoticeDismissalAndRelaunch() async throws {
         let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
         let card = try await repository.createCard(title: "Keep", now: .now)
-        _ = try await repository.captureConflict(cardID: card.id, lineID: nil, losingPayload: try JSONEncoder().encode(card), now: .now)
+        let conflict = try await repository.captureConflict(cardID: card.id, lineID: nil,
+            losingPayload: try JSONEncoder().encode(card), now: .now)
         let transport = SettingsCloudTransport()
         let sync = CloudSyncCoordinator(repository: repository, transport: transport)
         let model = SyncSettingsModel(repository: repository, coordinator: sync)
         await model.load()
         XCTAssertEqual(model.conflicts.count, 1)
+        XCTAssertEqual(model.unpresentedConflictCount, 1)
+        model.dismissConflictNotice()
+        XCTAssertEqual(model.conflicts.count, 1)
+        XCTAssertEqual(model.unpresentedConflictCount, 0)
         await model.setEnabled(false)
         let calls = await transport.calls
         XCTAssertEqual(calls, 0)
@@ -289,6 +447,50 @@ private actor SettingsCloudTransport: CloudTransport {
         XCTAssertNotNil(saved)
         let reopened = SyncSettingsModel(repository: repository, coordinator: sync)
         await reopened.load()
-        XCTAssertTrue(reopened.conflicts.isEmpty)
+        XCTAssertEqual(reopened.conflicts.count, 1)
+        XCTAssertEqual(reopened.unpresentedConflictCount, 0)
+
+        let recovered = await reopened.recover(conflict.id)
+        XCTAssertNotNil(recovered)
+        XCTAssertEqual(reopened.conflicts.first?.recoveredCardID, recovered)
+        let recoveredCard = try await repository.card(id: recovered!)
+        XCTAssertEqual(recoveredCard?.title, "Keep")
+
+        let afterRecoveryRelaunch = SyncSettingsModel(repository: repository, coordinator: sync)
+        await afterRecoveryRelaunch.load()
+        XCTAssertEqual(afterRecoveryRelaunch.conflicts.first?.recoveredCardID, recovered)
+        let repeatedRecovery = await afterRecoveryRelaunch.recover(conflict.id)
+        XCTAssertEqual(repeatedRecovery, recovered)
+    }
+
+    func testSettingsFiltersExpiredConflictCopiesFromPersistentRecovery() async throws {
+        let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+        let capturedAt = Date(timeIntervalSince1970: 100)
+        let card = try await repository.createCard(title: "Expired", now: capturedAt)
+        _ = try await repository.captureConflict(cardID: card.id, lineID: nil,
+            losingPayload: try JSONEncoder().encode(card), now: capturedAt)
+        let sync = CloudSyncCoordinator(repository: repository, transport: SettingsCloudTransport())
+        let model = SyncSettingsModel(repository: repository, coordinator: sync)
+
+        await model.load(now: capturedAt.addingTimeInterval(2_592_001))
+
+        XCTAssertTrue(model.conflicts.isEmpty)
+        XCTAssertEqual(model.unpresentedConflictCount, 0)
+    }
+
+    func testSettingsRefreshesPersistentConflictRecoveryAfterSync() async throws {
+        let repository = SwiftDataPetalRepository(container: try ModelContainerFactory.makeInMemory())
+        let card = try await repository.createCard(title: "Late conflict", now: .now)
+        let sync = CloudSyncCoordinator(repository: repository, transport: SettingsCloudTransport())
+        let model = SyncSettingsModel(repository: repository, coordinator: sync)
+        await model.load()
+        XCTAssertTrue(model.conflicts.isEmpty)
+
+        _ = try await repository.captureConflict(cardID: card.id, lineID: nil,
+            losingPayload: try JSONEncoder().encode(card), now: .now)
+        await model.sync(.userRequested)
+
+        XCTAssertEqual(model.conflicts.count, 1)
+        XCTAssertEqual(model.unpresentedConflictCount, 1)
     }
 }

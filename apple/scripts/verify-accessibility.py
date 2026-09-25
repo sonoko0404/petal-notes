@@ -16,7 +16,7 @@ def verify(root):
     errors = []
     contracts = [
         ("PetalChecklist/CardLibrary/CardLibraryView.swift", "Button(action: onCreate)", '.accessibilityIdentifier("card.create")'),
-        ("PetalChecklist/CardEditor/CardLineRow.swift", "if line.kind == .todo {", '.accessibilityIdentifier(line.isCompleted'),
+        ("PetalChecklist/CardEditor/CardLineRow.swift", "if line.kind == .todo {", '.accessibilityIdentifier(effectiveCompleted'),
         ("PetalChecklist/CardEditor/CardLineRow.swift", "Menu {", '.accessibilityIdentifier(line.kind == .todo ? "line.kind.todo"'),
         ("PetalWidgets/ChecklistWidgetView.swift", "Button(intent: OpenCardIntent", ".disabled(entry.snapshot.cardState =="),
         ("PetalWidgets/ChecklistWidgetView.swift", "Button(intent: QuickAddIntent", ".disabled(entry.snapshot.cardState !=")]

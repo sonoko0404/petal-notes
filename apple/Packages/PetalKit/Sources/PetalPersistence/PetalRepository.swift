@@ -13,6 +13,7 @@ public protocol PetalRepository: Sendable {
     func addLine(_ draft: NewLineDraft, now: Date) async throws -> CardLine
     func captureTodoLines(cardID: CardID, texts: [String], now: Date) async throws -> [CardLine]
     func updateLine(_ mutation: LineMutation, now: Date) async throws -> CardLine
+    func deleteLine(lineID: LineID, now: Date) async throws
     func setReminder(lineID: LineID, reminder: Reminder?, now: Date) async throws -> CardLine
     func setCompleted(lineID: LineID, completed: Bool, now: Date) async throws
     func setWidgetCompleted(lineID: LineID, completed: Bool, now: Date, calendar: Calendar) async throws
@@ -23,6 +24,7 @@ public protocol PetalRepository: Sendable {
     func purgeExpiredTrash(now: Date) async throws
     func captureConflict(cardID: CardID, lineID: LineID?, losingPayload: Data, now: Date) async throws -> ConflictArtifact
     func conflicts() async throws -> [ConflictArtifact]
+    func recoverConflict(id: UUID, now: Date) async throws -> CardID
     func purgeExpiredConflicts(now: Date) async throws
     func deleteAllData(resetGeneration: UUID, now: Date) async throws
     func resetGeneration() async throws -> UUID?

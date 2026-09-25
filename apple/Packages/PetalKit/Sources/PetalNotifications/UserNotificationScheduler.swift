@@ -28,6 +28,10 @@ public actor UserNotificationScheduler: ReminderScheduling {
             let state = await center.authorization()
             let allPending = try await center.pending()
             let pending = allPending.filter(\.isPetalOwned)
+            let activeLineIDs = Set(lines.filter { $0.kind == .todo && $0.deletedAt == nil }.map(\.id))
+            let orphanedDelivered = try await center.deliveredRequests().filter {
+                $0.isPetalOwned && !activeLineIDs.contains($0.lineID)
+            }.map(\.id)
             var desired: [ReminderRequest] = []
             if state == .authorized {
                 for line in lines where line.kind == .todo && line.deletedAt == nil {
@@ -57,6 +61,9 @@ public actor UserNotificationScheduler: ReminderScheduling {
                 throw ReminderSchedulingError.identifierCollision
             }
             await center.remove(pending.filter { !ids.contains($0.id) }.map(\.id))
+            // Also heals reset/lifecycle cleanup interrupted after its database
+            // commit, when no pending one-shot request remains to discover.
+            await center.removeDelivered(orphanedDelivered)
             for request in desired where !pending.contains(request) { try await center.add(request) }
             switch state {
             case .authorized: return ReconcileResult.scheduled
@@ -95,7 +102,12 @@ public actor UserNotificationScheduler: ReminderScheduling {
         let preceding = tail
         let task = Task { [center] in
             await preceding?.value
-            await center.remove(try await center.pending().filter(\.isPetalOwned).map(\.id))
+            // Delivered one-shot reminders are no longer pending. Resolve both
+            // sets before removal so an enumeration failure remains retryable.
+            let pending = try await center.pending().filter(\.isPetalOwned).map(\.id)
+            let delivered = try await center.deliveredRequests().filter(\.isPetalOwned).map(\.id)
+            await center.remove(pending)
+            await center.removeDelivered(delivered)
         }
         tail = Task { _ = try? await task.value }
         try await task.value

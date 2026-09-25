@@ -43,10 +43,29 @@ struct CardEditorView: View {
             }
             if let actionError { Text(actionError).foregroundStyle(.red) }
             List {
-                ForEach(model.lines) { line in
-                    CardLineRow(line: line, model: model) { actionError = PetalErrorCopy.message($0) }
-                        .disabled(model.isReadOnly)
-                        .listRowBackground(Color.clear)
+                Section {
+                    ForEach(model.incompleteLines) { line in
+                        CardLineRow(line: line, effectiveCompleted: model.isEffectivelyCompleted(line),
+                                    allowsReordering: true, model: model) { actionError = PetalErrorCopy.message($0) }
+                            .disabled(model.isReadOnly)
+                            .listRowBackground(Color.clear)
+                    }
+                } header: {
+                    Text("ui.incomplete.75f33c", tableName: "Widgets")
+                        .accessibilityIdentifier("editor.incompleteSection")
+                }
+                if !model.completedLines.isEmpty {
+                    Section {
+                        ForEach(model.completedLines) { line in
+                            CardLineRow(line: line, effectiveCompleted: model.isEffectivelyCompleted(line),
+                                        allowsReordering: false, model: model) { actionError = PetalErrorCopy.message($0) }
+                                .disabled(model.isReadOnly)
+                                .listRowBackground(Color.clear)
+                        }
+                    } header: {
+                        Text("ui.completed.22a970", tableName: "Widgets")
+                            .accessibilityIdentifier("editor.completedSection")
+                    }
                 }
             }
             .accessibilityIdentifier("editor.lines")

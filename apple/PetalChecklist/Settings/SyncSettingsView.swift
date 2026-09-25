@@ -83,16 +83,17 @@ final class SyncSettingsModel {
     private(set) var enabled = true
     private(set) var state: SyncState = .offline
     private(set) var conflicts: [ConflictArtifact] = []
+    private(set) var unpresentedConflictCount = 0
     private(set) var operationFailed = false
     var isResetRequested = false
     init(repository: any PetalSyncRepository, coordinator: CloudSyncCoordinator) {
         self.repository = repository; self.coordinator = coordinator
     }
-    func load() async {
+    func load(now: Date = .now) async {
         do {
             let snapshot = try await repository.syncSnapshot()
             enabled = snapshot.enabled; state = snapshot.state
-            conflicts += try await repository.takeUnpresentedConflicts(now: .now)
+            try await refreshConflicts(now: now, replacingNoticeCount: true)
             operationFailed = false
         } catch { operationFailed = true }
     }
@@ -106,6 +107,7 @@ final class SyncSettingsModel {
             try await coordinator.setEnabled(value)
             let snapshot = try await repository.syncSnapshot()
             enabled = snapshot.enabled; state = snapshot.state
+            try await refreshConflicts(now: .now, replacingNoticeCount: false)
             operationFailed = false
         } catch { operationFailed = true }
     }
@@ -115,10 +117,32 @@ final class SyncSettingsModel {
         do {
             let snapshot = try await repository.syncSnapshot()
             enabled = snapshot.enabled; state = snapshot.state
+            try await refreshConflicts(now: .now, replacingNoticeCount: false)
+            operationFailed = false
         } catch { operationFailed = true }
     }
     func requestReset() { isResetRequested = true }
-    func dismissConflicts() { conflicts = [] }
+    func dismissConflictNotice() { unpresentedConflictCount = 0 }
+    private func refreshConflicts(now: Date, replacingNoticeCount: Bool) async throws {
+        let newlyUnpresented = try await repository.takeUnpresentedConflicts(now: now).count
+        unpresentedConflictCount = replacingNoticeCount
+            ? newlyUnpresented
+            : unpresentedConflictCount + newlyUnpresented
+        let allConflicts = try await repository.conflicts()
+        conflicts = allConflicts.filter { $0.expiresAt > now }
+    }
+    func recover(_ id: UUID, now: Date = .now) async -> CardID? {
+        do {
+            let cardID = try await repository.recoverConflict(id: id, now: now)
+            let allConflicts = try await repository.conflicts()
+            conflicts = allConflicts.filter { $0.expiresAt > now }
+            operationFailed = false
+            return cardID
+        } catch {
+            operationFailed = true
+            return nil
+        }
+    }
     var statusKey: LocalizedStringKey {
         if !enabled { return "ui.icloud_sync_is_off.ef869d" }
         switch state {
@@ -135,6 +159,7 @@ final class SyncSettingsModel {
 struct SyncSettingsView: View {
     @Bindable var model: SyncSettingsModel
     var resetModel: ResetSettingsModel?
+    var onOpenRecoveredCard: (CardID) -> Void = { _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle("ui.icloud_sync.f18c29", isOn: Binding(get: { model.enabled }, set: { value in Task { await model.setEnabled(value) } }))
@@ -143,12 +168,40 @@ struct SyncSettingsView: View {
             Button("ui.sync_now.b5060f") { Task { await model.sync(.userRequested) } }
                 .disabled(!model.enabled).accessibilityIdentifier("settings.syncNow")
             if model.operationFailed { Text("ui.unable_to_sync_try_again.33e914").foregroundStyle(.red) }
-            if !model.conflicts.isEmpty {
+            if model.unpresentedConflictCount > 0 {
                 Text("ui.conflicting_edits_were_saved_for_30_days.801609")
+                Button("ui.dismiss_conflict_notice.90003b") { model.dismissConflictNotice() }
+                    .accessibilityIdentifier("settings.dismissConflictNotice")
+            }
+            if !model.conflicts.isEmpty {
+                Text("ui.recoverable_conflict_copies.4f113d").font(.headline)
+                Text("ui.conflict_copy_explanation.0d9410").foregroundStyle(.secondary)
                 ForEach(model.conflicts) { artifact in
-                    Text(conflictText(artifact)).textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(conflictText(artifact)).textSelection(.enabled)
+                        LabeledContent("ui.conflict_captured.7e116b") {
+                            Text(artifact.capturedAt, style: .date)
+                        }
+                        LabeledContent("ui.conflict_expires.5d12ae") {
+                            Text(artifact.expiresAt, style: .date)
+                        }
+                        if let recoveredCardID = artifact.recoveredCardID {
+                            Label("ui.recovered_copy_ready.8b1d02", systemImage: "checkmark.circle")
+                                .accessibilityIdentifier("settings.conflictRecovered.\(artifact.id)")
+                            Button("ui.open_recovered_copy.604c37") { onOpenRecoveredCard(recoveredCardID) }
+                                .accessibilityIdentifier("settings.openRecoveredConflict.\(artifact.id)")
+                        } else {
+                            Button("ui.recover_copy.5f2a11") {
+                                Task {
+                                    if let recoveredCardID = await model.recover(artifact.id) {
+                                        onOpenRecoveredCard(recoveredCardID)
+                                    }
+                                }
+                            }
+                                .accessibilityIdentifier("settings.recoverConflict.\(artifact.id)")
+                        }
+                    }
                 }
-                Button("ui.dismiss_conflict_notice.90003b") { model.dismissConflicts() }
             }
             Button("ui.delete_all_data.b963c2", role: .destructive) { resetModel?.beginConfirmation(); model.requestReset() }
                 .accessibilityIdentifier("settings.resetEntry")

@@ -12,6 +12,25 @@ struct WidgetSnapshotBuilderTests {
         return value
     }
 
+    @Test func actionableSyncFailureIsBadgedAndRecoveryOfflineOrDisabledStayQuiet() async throws {
+        let fixture = try await InMemoryPetalRepository.cardWithTodos(count: 1, now: now)
+        let repository = fixture.repository
+        let builder = WidgetSnapshotBuilder(repository: repository)
+        for state in [SyncState.failed(.authenticationRequired), .failed(.quotaExceeded), .failed(.other("private raw detail"))] {
+            try await repository.recordSyncState(state, retryAt: nil)
+            let snapshot = try await builder.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar)
+            #expect(snapshot.syncBadge == .failed)
+            #expect(!String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self).contains("private raw detail"))
+        }
+        for state in [SyncState.offline, .syncing, .synced(now)] {
+            try await repository.recordSyncState(state, retryAt: nil)
+            #expect(try await builder.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar).syncBadge == nil)
+        }
+        try await repository.recordSyncState(.failed(.quotaExceeded), retryAt: nil)
+        try await repository.setSyncEnabled(false)
+        #expect(try await builder.snapshot(cardID: fixture.fixtureCardID, size: .medium, now: now, calendar: calendar).syncBadge == nil)
+    }
+
     @Test func capacitiesCountEveryOverflowRowInManualOrder() async throws {
         let fixture = try await InMemoryPetalRepository.cardWithTodos(count: 12, now: now)
         let builder = WidgetSnapshotBuilder(repository: fixture.repository)
@@ -54,6 +73,19 @@ struct WidgetSnapshotBuilderTests {
         #expect(snapshot.visibleLines.first?.isCompleted == false)
         #expect(try await repository.lines(cardID: card.id).first?.isCompleted == true)
         #expect(try await repository.pendingOutboxCount() == before)
+    }
+
+    @Test(arguments: [false, true]) func dailyCompletionFromAnotherDayRemainsVisibleAndIncomplete(missingInstant: Bool) async throws {
+        let repository = try await InMemoryPetalRepository.bootstrapped(now: now)
+        let card = try await repository.createCard(title: "Daily", now: now)
+        var line = try await repository.addLine(.init(cardID: card.id, kind: .todo, text: "Still available",
+            isCompleted: true, reminder: .init(rule: .daily(localMinute: 600, timeZoneIdentifier: "UTC"), isEnabled: true)), now: now)
+        line.completedAt = missingInstant ? nil : now.addingTimeInterval(86_400)
+        line.lastDailyCompletionKey = "2026-09-22"
+        try await repository.replaceUserData(TransferSnapshot(cards: [card], lines: [line]), now: now)
+        let snapshot = try await WidgetSnapshotBuilder(repository: repository).snapshot(cardID: card.id, size: .medium, now: now, calendar: calendar)
+        #expect(snapshot.visibleLines.map(\.text) == ["Still available"])
+        #expect(snapshot.visibleLines.first?.isCompleted == false)
     }
 
     @Test func cardLifecycleKeepsConfiguredIdentityAndHidesInactiveContents() async throws {
